@@ -1,6 +1,6 @@
 # V1 deployment preparation
 
-No public deployment is authorized or performed. The V1 foundation and its migration/container definitions are prepared for a small single-host service. The complete live DeepSeek-to-Chrome acceptance gate must pass before marking V1 complete. No V2 work is authorized.
+No public deployment is authorized or performed. The V1 foundation and its migration/container definitions are prepared for a small single-host service. The complete live DeepSeek-to-Chrome acceptance gate passed on September 11, 2026. No V2 work is authorized.
 
 ## Required hosting layout
 

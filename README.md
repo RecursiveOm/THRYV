@@ -8,7 +8,7 @@ THRYV is a personal AI workspace for thinking, writing, learning, and taking sma
 
 V1 extends the working Next.js/TypeScript and FastAPI V0 with accounts, durable owned conversations, encrypted saved DeepSeek credentials, paired devices, a scoped Linux Companion, confirmations, and action auditing. The cream-and-green UI retains chat, Markdown, starter prompts, provider errors, and responsive layouts.
 
-A real Companion-to-Chrome window check has passed locally. **The full live DeepSeek → Chrome acceptance gate is still pending a locally supplied DeepSeek key.** See [verification](docs/verification.md) for exact results and limitations. V2 is not authorized or started.
+**The full live DeepSeek → Chrome acceptance gate passed on September 11, 2026**, including approval, observed-window success, reload persistence, action auditing, and revocation. See [verification](docs/verification.md) for exact results and limitations. V2 is not authorized or started.
 
 ```mermaid
 flowchart TD
@@ -117,7 +117,7 @@ Read the [security review and threat boundaries](docs/security.md) before hostin
 | `MAX_CONCURRENT_REQUESTS` | 20 per process |
 | `LOG_LEVEL` | INFO; controlled metadata |
 
-Frontend `NEXT_PUBLIC_API_URL` defaults to `http://localhost:8000`, and is compiled at build time. **Never place any credential in a `NEXT_PUBLIC_*` variable.** `DEEPSEEK_API_KEY` in ignored backend `.env` is only for the opt-in local acceptance script; production runtime never uses a developer key.
+Frontend `NEXT_PUBLIC_API_URL` defaults to `http://localhost:8000`, and is compiled at build time. **Never place any credential in a `NEXT_PUBLIC_*` variable.** `DEEPSEEK_API_KEY` in ignored backend `.env` or repository-root `.env` is only for the opt-in local acceptance script; production runtime never uses a developer key.
 
 The default provider uses non-thinking, non-streaming DeepSeek chat completions with structured function tools on account-owned chat routes. See the [DeepSeek API reference](https://api-docs.deepseek.com/api/create-chat-completion/).
 

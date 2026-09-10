@@ -4,7 +4,9 @@ Date: 2026-09-11. Engineering model: **GPT-6 Astra**, verified again from the cu
 
 ## Acceptance status
 
-The V1 foundation is implemented. A real authenticated Companion check successfully opened Chrome, observed a new window, recorded the result, and verified revocation. **The full live DeepSeek → structured tool → user confirmation → Chrome demo remains unverified because `DEEPSEEK_API_KEY` is absent from the user's ignored local configuration.** The opt-in live script exits with code 2 and a controlled pending message. No fake model response is being counted as live inference. V1's completion gate is therefore not yet satisfied, and V2 is not ready to begin.
+**V1's live acceptance gate passed on September 11, 2026.** The real DeepSeek provider requested a structured Chrome action, the browser required user confirmation, the actual Companion opened Chrome and observed a new window, THRYV reported that result, and the audit showed success. Revocation blocked the repeated live command. Account sign-in, encrypted provider connection, chat, reload persistence, and browser credential safety also passed.
+
+The user supplied the key in ignored repository-root `.env`. It was read locally without being printed or copied into source control. No mocked provider or desktop result was used for this acceptance run. The script removed the test account's saved provider key, revoked its device, signed out, stopped its Companion, and removed temporary credential state. V1 is ready for V2 planning or development **only when Omkar explicitly authorizes it**; no V2 work has started.
 
 ## Added architecture
 
@@ -35,7 +37,7 @@ Final regression results: **92 backend tests, 22 Companion tests, and 28 browser
 | Docker V1 image build | Passed |
 | Non-root production container smoke | Passed: migration, private volume/file permissions, health, disabled docs, secret/test exclusion, schema consistency |
 | Real Companion/Chrome test repeated on September 11 | Passed: observed window, audit result, revocation and no redispatch |
-| Full live DeepSeek acceptance script | Pending; exit 2 because no local key is configured |
+| Full live DeepSeek acceptance script | Passed all eight live stages with actual model inference and Chrome execution |
 
 Playwright uses a separate `.next-test` build directory so tests can run alongside the user's existing development server without stopping it. A container verification failure exposed a generated migration file with private source-file permissions; the image now explicitly grants read access to application/migration source while retaining private database/secret permissions. `backend/scripts/container_smoke.py` reproduces the disposable-volume check.
 
@@ -69,7 +71,7 @@ The first attempt reported `launch_unconfirmed` correctly. The desktop's existin
 
 ## Full live acceptance procedure
 
-Start real backend/frontend on the default local origins. Add a valid key locally as `DEEPSEEK_API_KEY` in ignored `backend/.env`; never paste it into chat. From `frontend/`, run:
+Start real backend/frontend on the default local origins. Add a valid key locally as `DEEPSEEK_API_KEY` in ignored `backend/.env` or repository-root `.env`; never paste it into chat. From `frontend/`, run:
 
 ```bash
 node scripts/live-smoke.mjs
@@ -85,4 +87,18 @@ No public service, paid infrastructure, external notification, merge to main, or
 
 ## Git handoff
 
-Branch: `feat/thryv-v1`, based on V0 commit `6f33a7a`. The user authorized normal commits and pushes to `https://github.com/RecursiveOm/Thryv.git`. Final commit/push status is reported in the handoff. Pending live acceptance must remain visible in that report.
+Branch: `feat/thryv-v1`, based on V0 commit `6f33a7a`. Foundation commit: `349339a`; live acceptance and its documentation are recorded in a follow-up commit. The user authorized normal commits and pushes to `https://github.com/RecursiveOm/Thryv.git`. Final commit/push status is reported in the handoff. The complete live acceptance gate has now passed.
+
+
+Live acceptance output:
+
+```text
+PASS account registration and sign in
+PASS live DeepSeek connection
+PASS live chat and reload persistence
+PASS pairing and Companion online
+PASS live model requests Chrome; confirmation before execution
+PASS real Chrome window and truthful chat result
+PASS revocation blocks repeated command
+PASS browser credential safety
+```

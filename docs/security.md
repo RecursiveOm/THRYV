@@ -56,7 +56,7 @@ Application logs contain random request IDs, status, duration, and fixed error c
 
 - Cross-user chat/device/action access, approvals from another session, expired sessions, invalid/revoked device credentials, pairing/action replay, duplicate concurrent claims, forged privilege flags, command injection, and altered key ciphertext are covered by automated tests.
 - Production HTTPS cookie behavior and missing encryption configuration fail-closed behavior are tested.
-- A real authenticated Companion check opened Chrome, observed a new window, recorded success, and verified revocation. The full live DeepSeek demo still requires the user's local key.
+- A real authenticated Companion check opened Chrome, observed a new window, recorded success, and verified revocation. The full live DeepSeek-to-Chrome demo also passed on September 11, including confirmation, audit, persistence, and revocation.
 - Dependency review found the cryptography 49 advisory [GHSA-g6cj-pr64-35w5](https://github.com/pyca/cryptography/security/advisories/GHSA-g6cj-pr64-35w5). The implementation uses Fernet rather than the advisory's PKCS#7 APIs, but the dependency was upgraded to patched version 50 anyway.
 - This is an engineering threat review with executable checks, not an external penetration test or a claim of complete security. Review current dependency advisories and hosting controls again at public deployment.
 

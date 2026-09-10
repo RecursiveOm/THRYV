@@ -1,5 +1,6 @@
 // Opt-in REAL DeepSeek + Chrome acceptance test. Never run by CI; no traces/screenshots.
-import { loadEnvFile } from "node:process";
+import { parseEnv } from "node:util";
+import { readFileSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,16 +8,19 @@ import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
 
-try {
-  loadEnvFile("../backend/.env");
-} catch {
-  /* Key may be in the environment. */
+let key = process.env.DEEPSEEK_API_KEY;
+for (const file of ["../backend/.env", "../.env"]) {
+  if (key) break;
+  try {
+    key = parseEnv(readFileSync(file, "utf8")).DEEPSEEK_API_KEY;
+  } catch {
+    /* Local configuration is optional; never print file contents. */
+  }
 }
-const key = process.env.DEEPSEEK_API_KEY;
 delete process.env.DEEPSEEK_API_KEY;
 if (!key) {
   process.stdout.write(
-    "Live verification pending: add DEEPSEEK_API_KEY to ignored backend/.env.\n",
+    "Live verification pending: add DEEPSEEK_API_KEY to ignored backend/.env or root .env.\n",
   );
   process.exit(2);
 }
