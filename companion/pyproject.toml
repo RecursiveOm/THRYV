@@ -1,0 +1,19 @@
+[project]
+name = "thryv-companion"
+version = "1.0.0"
+description = "Scoped outbound desktop companion for THRYV"
+requires-python = ">=3.12"
+dependencies = ["httpx>=0.28,<1", "python-xlib>=0.33,<1"]
+[project.scripts]
+thryv-companion = "thryv_companion.client:main"
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[dependency-groups]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "pip-audit>=2.9,<3"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

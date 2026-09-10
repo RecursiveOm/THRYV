@@ -108,3 +108,108 @@ export function boundedHistory(
   }
   return history;
 }
+
+export async function accountRequest<T>(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  let response: Response;
+  try {
+    const form = body instanceof URLSearchParams;
+    response = await fetch(`${API_URL}${path}`, {
+      method,
+      headers: {
+        "X-THRYV-Request": "1",
+        ...(body === undefined
+          ? {}
+          : {
+              "Content-Type": form
+                ? "application/x-www-form-urlencoded"
+                : "application/json",
+            }),
+      },
+      body:
+        body === undefined
+          ? undefined
+          : form
+            ? body.toString()
+            : JSON.stringify(body),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(70_000)])
+        : AbortSignal.timeout(70_000),
+      credentials: "include",
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new ApiError(
+      "connection_failed",
+      "THRYV couldn’t reach its server. Check your connection and try again.",
+    );
+  }
+  if (response.status === 204) return undefined as T;
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const code = payload?.error?.code || "internal_error";
+    const accountErrors: Record<string, string> = {
+      unauthenticated: "Sign in to continue.",
+      auth_failed:
+        "Check your email and password. New accounts need a unique email and a password of 12–128 characters.",
+      vault_unavailable:
+        "The host must configure secure provider storage before connecting a key.",
+      consent_required: "Confirm encrypted storage to connect your key.",
+      device_offline:
+        "The device is offline or revoked. Start Companion and try again.",
+      confirmation_session:
+        "Approve this action in the browser session that requested it.",
+      confirmation_expired: "This confirmation expired or was already used.",
+      conversation_busy:
+        "This conversation has a request or action in progress. Please wait.",
+      not_found: "This item is unavailable.",
+      csrf_rejected:
+        "The host’s browser origin configuration does not match this page.",
+    };
+    throw new ApiError(
+      code,
+      accountErrors[code] ||
+        errorMessages[code] ||
+        errorMessages.internal_error,
+    );
+  }
+  if (payload === null)
+    throw new ApiError(
+      "invalid_response",
+      "THRYV received an unreadable response.",
+    );
+  return payload as T;
+}
+
+export type Account = {
+  id: string;
+  email: string;
+  provider_connected: boolean;
+};
+export type Conversation = { id: string; title: string; messages?: Message[] };
+export type Device = {
+  id: string;
+  name: string;
+  status: string;
+  platform: string;
+  last_seen: number;
+};
+export type Action = {
+  id: string;
+  device_id: string;
+  conversation_id: string | null;
+  tool: string;
+  arguments: { application?: string };
+  permission: string;
+  status: string;
+  expires_at: number;
+  created_at: number;
+  result: string | null;
+};

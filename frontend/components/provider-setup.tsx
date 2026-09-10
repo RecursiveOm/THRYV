@@ -12,17 +12,18 @@ import {
   LockKeyhole,
   ShieldCheck,
 } from "lucide-react";
-import { apiRequest } from "@/lib/api";
+import { accountRequest } from "@/lib/api";
 import { Brand } from "./brand";
 
 export function KeyForm({
   onConnect,
   isSettings = false,
 }: {
-  onConnect: (key: string) => void;
+  onConnect: () => void;
   isSettings?: boolean;
 }) {
   const [input, setInput] = useState("");
+  const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const controller = useRef<AbortController | null>(null);
@@ -30,7 +31,7 @@ export function KeyForm({
 
   async function connect(event: FormEvent) {
     event.preventDefault();
-    if (controller.current || !input.trim()) return;
+    if (controller.current || !input.trim() || !consent) return;
     const key = input.trim();
     if (!/^[A-Za-z0-9_-]{8,256}$/.test(key)) {
       setError("Enter a valid DeepSeek API key, without spaces.");
@@ -41,16 +42,20 @@ export function KeyForm({
     setBusy(true);
     setError("");
     try {
-      const result = await apiRequest<{ connected: boolean; provider: string }>(
-        "/api/provider/connect",
-        key,
+      const result = await accountRequest<{
+        connected: boolean;
+        provider: string;
+      }>(
+        "/api/account/provider",
+        "POST",
+        { api_key: key, consent_to_store: consent },
         current.signal,
       );
       if (!result.connected || result.provider !== "deepseek")
         throw new Error("THRYV couldn’t verify the provider connection.");
       if (!current.signal.aborted) {
         setInput("");
-        onConnect(key);
+        onConnect();
       }
     } catch (failure) {
       if (!current.signal.aborted)
@@ -109,6 +114,16 @@ export function KeyForm({
       <p className="field-hint">
         Your API usage is billed directly by DeepSeek.
       </p>
+      <label className="consent-label">
+        <input
+          type="checkbox"
+          checked={consent}
+          onChange={(event) => setConsent(event.target.checked)}
+          disabled={busy}
+          required
+        />{" "}
+        Save my key encrypted on this THRYV server for future sessions.
+      </label>
       {error && (
         <p id="key-error" className="error" role="alert">
           {error}
@@ -117,7 +132,7 @@ export function KeyForm({
       <button
         type="submit"
         className="primary-button"
-        disabled={busy || !input.trim()}
+        disabled={busy || !input.trim() || !consent}
       >
         {busy ? (
           <>
@@ -133,15 +148,16 @@ export function KeyForm({
       <div className="privacy-note" id="key-privacy">
         <ShieldCheck size={18} />
         <p>
-          Your key stays in this tab’s memory and is sent securely through THRYV
-          to DeepSeek. It isn’t saved by THRYV. Refreshing clears it.
+          Your key is encrypted at rest and sent to DeepSeek through THRYV. The
+          server decrypts it only to make provider requests. Remove it in
+          settings.
         </p>
       </div>
     </form>
   );
 }
 
-export function Welcome({ onConnect }: { onConnect: (key: string) => void }) {
+export function Welcome({ onConnect }: { onConnect: () => void }) {
   return (
     <main className="welcome">
       <section className="welcome-story">
@@ -169,7 +185,7 @@ export function Welcome({ onConnect }: { onConnect: (key: string) => void }) {
         </div>
         <div className="story-bottom">
           <span>Created by Omkar Zunje</span>
-          <span>THRYV / V0</span>
+          <span>THRYV / V1</span>
         </div>
         <div className="orbit-art" aria-hidden="true">
           <div />
@@ -182,7 +198,7 @@ export function Welcome({ onConnect }: { onConnect: (key: string) => void }) {
         <div className="setup-top">
           <span>YOUR SPACE. YOUR KEY.</span>
           <span className="setup-badge">
-            <LockKeyhole size={13} /> Session only
+            <LockKeyhole size={13} /> Encrypted storage
           </span>
         </div>
         <div className="setup-card">
@@ -198,7 +214,7 @@ export function Welcome({ onConnect }: { onConnect: (key: string) => void }) {
           <p className="setup-description">
             Connect DeepSeek to start a conversation.
             <br />
-            No account. Just you and what’s next.
+            Your connection stays available after reload.
           </p>
           <KeyForm onConnect={onConnect} />
         </div>

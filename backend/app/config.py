@@ -1,7 +1,7 @@
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     deepseek_model: str = Field(default="deepseek-flash", min_length=1, max_length=100)
     provider_timeout_seconds: float = Field(default=60, ge=1, le=120)
     max_concurrent_requests: int = Field(default=20, ge=1, le=200)
+    database_url: SecretStr = SecretStr("sqlite+aiosqlite:///./thryv.db")
+    credential_encryption_key: SecretStr | None = None
+    auth_attempts_per_minute: int = Field(default=20, ge=1, le=1000)
+    session_lifetime_seconds: int = Field(default=604800, ge=60, le=2592000)
 
     @model_validator(mode="after")
     def validate_origin(self):

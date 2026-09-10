@@ -156,3 +156,72 @@ async def test_orchestrator_uses_protocol_and_preserves_identity():
 
     result = await Orchestrator(FakeProvider()).chat(ChatRequest(message="Hello"), KEY)
     assert result.message.content == "I'm THRYV."
+
+
+@pytest.mark.parametrize(
+    "calls",
+    [
+        None,
+        [],
+        ["bad"],
+        [{"type": "function", "function": None}],
+        [{"type": "function", "function": {"name": "open_application", "arguments": "not JSON"}}],
+        [{"type": "function", "function": {"name": "open_application", "arguments": "[]"}}],
+        [{"type": "function"}, {"type": "function"}],
+    ],
+)
+async def test_malformed_structured_calls_fail_closed(calls):
+    payload = {
+        "choices": [
+            {"message": {"role": "assistant", "tool_calls": calls}, "finish_reason": "tool_calls"}
+        ]
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))
+    ) as client:
+        with pytest.raises(AppError) as caught:
+            await DeepSeekProvider(client, "deepseek-flash", 1).plan(
+                KEY, MESSAGES, [{"type": "function"}]
+            )
+        assert caught.value.code == "provider_response"
+
+
+async def test_structured_request_discards_untrusted_success_text():
+    from app.tools import REGISTRY
+
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["tool_choice"] == "auto"
+        assert len(body["tools"]) == 2
+        assert body["thinking"] == {"type": "disabled"}
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "I already opened it",
+                            "tool_calls": [
+                                {
+                                    "type": "function",
+                                    "function": {
+                                        "name": "open_application",
+                                        "arguments": '{"application":"chrome"}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await DeepSeekProvider(client, "deepseek-flash", 1).plan(
+            KEY, MESSAGES, [t.definition() for t in REGISTRY.values()]
+        )
+    assert result.content == ""
+    assert result.tool_call.name == "open_application"
+    assert result.tool_call.arguments == {"application": "chrome"}

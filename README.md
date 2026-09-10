@@ -1,56 +1,52 @@
 # THRYV
 
-**Your Personal AI**
+**Your Personal AI** · Created by Omkar Zunje
 
-Created by Omkar Zunje
+THRYV is a personal AI workspace for thinking, writing, learning, and taking small, authorized actions on your own computer. Creator attribution never implies the current user's identity. Engineering uses **GPT-6 Astra only**; DeepSeek is the runtime provider.
 
-THRYV is a personal AI workspace for thinking, writing, learning, and planning. Anyone can connect their own DeepSeek API key and start a conversation. The creator attribution is project metadata; THRYV never assumes who the current user is.
+## V1 foundation
 
-## Current — V0
+V1 extends the working Next.js/TypeScript and FastAPI V0 with accounts, durable owned conversations, encrypted saved DeepSeek credentials, paired devices, a scoped Linux Companion, confirmations, and action auditing. The cream-and-green UI retains chat, Markdown, starter prompts, provider errors, and responsive layouts.
 
-- Responsive Next.js interface with provider setup, chat, Markdown, starter prompts, loading states, retryable errors, and provider settings.
-- DeepSeek BYOK: connection verification through the models endpoint, then chat using the current user's key. No developer key or THRYV account is required.
-- One FastAPI backend, one orchestrator, and a small typed provider interface with one DeepSeek implementation.
-- Temporary conversations: up to 10 recent complete turns within a 32,000-character request context. Up to 50 turns remain visible in the tab; older visible turns are discarded.
-- Explicit disconnect, key replacement, and new-conversation flows. Keys and conversations clear on refresh or tab closure.
-- Request limits, safe error normalization, correlation IDs, restricted CORS, automated backend and browser tests, locked dependencies, CI, and a portable backend container definition.
+A real Companion-to-Chrome window check has passed locally. **The full live DeepSeek → Chrome acceptance gate is still pending a locally supplied DeepSeek key.** See [verification](docs/verification.md) for exact results and limitations. V2 is not authorized or started.
 
-Replies are returned as complete messages, with a waiting indicator and a stop-waiting action. Token streaming is not implemented in V0. Stopping the browser request does not guarantee DeepSeek cancels generation or billing. THRYV has no tools or execution capabilities.
-
-## Architecture
-
-```text
-Browser / Next.js
-  key + recent conversation in tab memory
-        │ HTTPS POST + Authorization: Bearer <user key>
-        ▼
-FastAPI: request limits → validation → thin API routes
-        ▼
-Single THRYV orchestrator: identity + bounded conversation
-        ▼
-DeepSeek provider: per-request HTTP client → DeepSeek API
-        ▼
-Normalized reply or safe error → browser
+```mermaid
+flowchart TD
+    UI[Browser: account session and saved chats] --> API[FastAPI: authentication and ownership]
+    API --> DB[(SQLite: durable state)]
+    API --> Vault[Decrypt this user's saved key]
+    Vault --> O[Single THRYV orchestrator]
+    O --> Model[DeepSeek: text or structured tool request]
+    Model --> Registry[Typed registry: validate and authorize]
+    Registry --> Permission{Trusted permission policy}
+    Permission -->|BLOCKED| Reject[Reject safely]
+    Permission -->|CONFIRM| Approval[Same-user, same-session approval]
+    Permission -->|SAFE| Queue[Durable action queue]
+    Approval --> Queue
+    Companion[Outbound authenticated Companion] --> Queue
+    Companion --> Handler[Allowlisted local handler]
+    Handler --> Result[Observed result]
+    Result --> DB
+    DB --> UI
 ```
 
-Next.js 16 / React 19 / TypeScript provide the frontend. Python 3.12+, FastAPI, Pydantic, and HTTPX provide the backend. No database, authentication system, shared user state, queue, or separate orchestration service is needed for V0. There is no OpenAI runtime dependency; development was performed using GPT-6 Astra, while DeepSeek serves runtime inference only.
+## Run locally
 
-The default runtime model is `deepseek-flash`, using non-thinking chat completions. This follows the [current DeepSeek API documentation](https://api-docs.deepseek.com/). The provider's response and error handling follow the [chat API reference](https://api-docs.deepseek.com/api/create-chat-completion/) and [error code reference](https://api-docs.deepseek.com/quick_start/error_codes/). Model names can change; `DEEPSEEK_MODEL` is host configuration, and connection verification checks its availability.
+Prerequisites: Python 3.12+, uv, Node.js 24, npm. Ordinary tests use fake provider responses and mock desktop effects. A real conversation requires your own DeepSeek key with API credit.
 
-## Local development
-
-Prerequisites: Node.js 24 LTS, npm, Python 3.12+, and [uv](https://docs.astral.sh/uv/getting-started/installation/). Use a DeepSeek key with API credit for a real conversation. Ordinary tests use fakes and make no paid requests.
-
-From the repository root, prepare the backend:
+From the repository root:
 
 ```bash
 cd backend
-cp .env.example .env
 uv sync --locked
+uv run python scripts/init_local.py
+uv run alembic upgrade head
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --no-access-log
 ```
 
-In another terminal, prepare the frontend:
+The initialization helper creates an ignored `.env` and a persistent Fernet encryption key, without printing it. Keep that key separate from database backups. Do not replace it casually: existing saved provider keys would become unreadable.
+
+In another terminal:
 
 ```bash
 cd frontend
@@ -59,68 +55,94 @@ npm ci
 npm run dev
 ```
 
-Open **http://localhost:3000**. Paste your DeepSeek key into the password field, select **Connect & get started**, and send a message. The connection check verifies authentication and model availability without generating a paid completion; credit availability is checked by DeepSeek when you send a message. Provider settings let you connect another key or disconnect. A new conversation clears the current conversation after confirmation and retains the connection.
+Open **http://localhost:3000**, create an account (12–128 character password), then connect DeepSeek. Check the explicit consent box to save the key encrypted on this server. Refresh preserves the account session, selected/recent conversation, messages, and provider connection. The URL fragment may contain an opaque conversation ID; it contains no credential or message. A new conversation keeps the old one. Replacing/removing a provider key keeps chats. Sign out invalidates that browser session; signing back in restores your data.
 
-The default backend CORS origin is exactly `http://localhost:3000`. If you open the frontend at a different hostname or port, update `FRONTEND_ORIGIN` to match. Do not add a trailing slash.
+Backend and frontend hostnames must match the configured origin exactly. `localhost` and `127.0.0.1` are different origins; do not mix them.
+
+## Pair your Linux computer
+
+Run Companion as your regular desktop user, in a terminal inside the graphical session. It opens no listening ports. Chrome and VS Code must be installed in the supported trusted system locations.
+
+1. In THRYV, open **Devices & Actions → Add device**.
+2. On the computer being paired, run from the checkout:
+
+   ```bash
+   uv sync --project companion --locked
+   uv run --project companion thryv-companion pair --server http://localhost:8000 --name "My laptop"
+   ```
+
+3. Copy the hidden pairing token from the browser and paste into the Companion's hidden terminal prompt. It expires after five minutes and works once. Never put it in a command argument, URL, screenshot, or chat.
+4. Start the outbound polling loop:
+
+   ```bash
+   uv run --project companion thryv-companion run
+   ```
+
+5. Select your online device, ask **“Open Chrome on my laptop.”**, and review **Allow action**. THRYV reports success only after Companion observes a new matching window. Review **Recent Actions**; **Revoke** invalidates the credential and cancels pending work.
+
+For a remote backend use its HTTPS origin. HTTP is accepted only on loopback. Companion credentials live in `~/.local/share/thryv-companion/device.json` (0600) inside a 0700 directory. `--state-dir` supports separate pairings. Revoke the old device before pairing with a new state directory. Stop with Ctrl+C; there is no installer, auto-start service, or auto-updater in V1.
+
+| Tool | Permission | Execution |
+| --- | --- | --- |
+| `open_application` | CONFIRM | `application` must be `chrome` or `vscode`; fixed executable/arguments; no shell |
+| `get_system_info` | SAFE | Only OS and CPU architecture enums; no hostname, files, processes, or environment |
+| Anything else | BLOCKED | Rejected; never dispatched |
+
+Chrome uses a dedicated local profile at `~/.local/share/thryv-companion/chrome-profile` and opens `about:blank`. This permits X11/XWayland window verification even when your usual Chrome instance runs on Wayland. It does not use your existing signed-in browser profile. VS Code uses a new window; if it cannot be verified, THRYV reports an unconfirmed result. Windows/macOS application launching is not implemented.
+
+## State, privacy, and authentication
+
+- FastAPI Users handles registration/password verification using Argon2. Independent random database-backed sessions expire after seven days. Cookies are HttpOnly, SameSite=Lax, Secure in production, and host-only. Only SHA-256 digests of high-entropy session/device/pairing tokens persist server-side.
+- Each resource query checks the authenticated account or paired device's ownership. API keys never identify accounts. Browser mutations require exact `Origin` and `X-THRYV-Request: 1`; CORS allows one configured frontend and credentialed requests.
+- Provider keys are saved only with explicit consent, using authenticated Fernet encryption and owner binding under a server-held key. The host must be trusted: it decrypts the key to call DeepSeek. Saved keys are never sent back to the frontend or to Companion.
+- Conversations are durable database records, **not application-encrypted**. Protect disk volumes/backups and host access. The UI loads 100 recent turns per chat; generation uses at most 10 complete recent turns within 32,000 characters. Lists are bounded; no full-text search or export UI in V1.
+- One structured action per model turn. Confirmations expire after 120 seconds, are bound to the initiating session/user/action, and are consumed once. Dispatch/result windows are 30 seconds. A database claim and local durable execution ledger prevent automatic replay. Uncertain outcomes are never automatically re-executed.
+- Audit records keep user/device/tool/validated arguments/permission/status/timestamps and sanitized results. They survive conversation deletion. This is a high-level record per action, not a tamper-proof event archive.
+- Logs contain controlled status/error codes, duration, and random request IDs. No keys, passwords, message text, token headers, raw exceptions, or provider error bodies. Markdown rejects active HTML, tracking images, and unsafe link schemes.
+
+Read the [security review and threat boundaries](docs/security.md) before hosting for other people.
 
 ## Configuration
 
-| Location | Variable | Default / purpose |
-| --- | --- | --- |
-| `frontend/.env.local` | `NEXT_PUBLIC_API_URL` | `http://localhost:8000`; backend origin, compiled into the frontend at build time |
-| `backend/.env` | `APP_ENV` | `development`; `production` requires an HTTPS frontend origin and disables API docs |
-| `backend/.env` | `FRONTEND_ORIGIN` | One explicit allowed origin, default `http://localhost:3000` |
-| `backend/.env` | `LOG_LEVEL` | `INFO`; controlled application metadata only |
-| `backend/.env` | `DEEPSEEK_MODEL` | `deepseek-flash` |
-| `backend/.env` | `PROVIDER_TIMEOUT_SECONDS` | 60 seconds, range 1–120; frontend waits at most 70 seconds |
-| `backend/.env` | `MAX_CONCURRENT_REQUESTS` | 20 in-flight requests per process, range 1–200 |
-| Container environment | `PORT` | 8000; used by the container start command and health check |
-
-For local Uvicorn commands, set the port using `--port`; `PORT` is a container convention. Keep `PROVIDER_TIMEOUT_SECONDS` at or below 60 unless you also adjust the frontend deadline and host timeouts.
-
-**Never create `NEXT_PUBLIC_DEEPSEEK_API_KEY`.** All `NEXT_PUBLIC_*` values are public. The backend does not read a developer API key for runtime use.
-
-## Key safety and privacy
-
-- The key exists in the browser password field/React memory and temporarily in the current backend/provider request. It is not placed in URLs, cookies, local storage, session storage, a database, or a server session.
-- Every authenticated request uses that user's `Authorization` header. A separate HTTP client for each request prevents credentials or upstream cookies from crossing between users.
-- Production frontend and backend must both use HTTPS. The THRYV host necessarily handles the key and conversation in memory while forwarding them to DeepSeek. Choose a host you trust. Local HTTP is for loopback development only.
-- THRYV logs controlled error codes, status, duration, and random request IDs. It excludes headers, request bodies, provider error bodies, raw exception messages, and stack traces. HTTP debug/access logging is disabled by the application; documented launch commands also disable Uvicorn access logs.
-- No application analytics, remote fonts, or conversation telemetry is installed. Remote images in model Markdown are disabled to prevent tracking requests; raw HTML is not rendered, and links use restricted protocols and no referrer.
-- THRYV does not save keys or conversations. This does **not** determine DeepSeek's own data retention policy or a hosting provider's request capture behavior. See [security details](docs/security.md).
-- `.env` files are ignored. Examples contain configuration only. Browser tests use obvious fake keys, with trace recording disabled.
-
-## API
-
-| Endpoint | Behavior |
+| Backend setting | Default / meaning |
 | --- | --- |
-| `GET /health` | Local process health: `{"status":"ok","service":"THRYV"}`; does not contact DeepSeek |
-| `POST /api/provider/connect` | Requires bearer key; verifies it and the configured model through DeepSeek `/models` |
-| `POST /api/chat` | Requires bearer key; accepts `message` and optional `history`, returns `message` and `truncated` |
+| `APP_ENV` | `development`; production requires HTTPS frontend origin and valid encryption key |
+| `FRONTEND_ORIGIN` | `http://localhost:3000`, one explicit origin without trailing slash |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./thryv.db`; durable single-host SQLite |
+| `CREDENTIAL_ENCRYPTION_KEY` | No default; generate locally or inject from host secret storage |
+| `SESSION_LIFETIME_SECONDS` | 604800 (seven days) |
+| `AUTH_ATTEMPTS_PER_MINUTE` | 20 per direct client IP/process across login/register/pairing |
+| `DEEPSEEK_MODEL` | `deepseek-flash`; connection verification checks model availability |
+| `PROVIDER_TIMEOUT_SECONDS` | 60; browser waits up to 70 seconds |
+| `MAX_CONCURRENT_REQUESTS` | 20 per process |
+| `LOG_LEVEL` | INFO; controlled metadata |
 
-Example chat body, without a credential:
+Frontend `NEXT_PUBLIC_API_URL` defaults to `http://localhost:8000`, and is compiled at build time. **Never place any credential in a `NEXT_PUBLIC_*` variable.** `DEEPSEEK_API_KEY` in ignored backend `.env` is only for the opt-in local acceptance script; production runtime never uses a developer key.
 
-```json
-{
-  "message": "What color did I mention?",
-  "history": [
-    { "role": "user", "content": "My favorite color is green." },
-    { "role": "assistant", "content": "Green — got it for this conversation." }
-  ]
-}
-```
+The default provider uses non-thinking, non-streaming DeepSeek chat completions with structured function tools on account-owned chat routes. See the [DeepSeek API reference](https://api-docs.deepseek.com/api/create-chat-completion/).
 
-Messages have an 8,000-character limit; history must alternate complete user/assistant pairs, with no client-supplied system or tool messages. The backend rejects context over 32,000 characters or 20 history messages. The browser drops oldest whole turns to fit. HTTP bodies are capped at 150,000 bytes, with a 10-second receive deadline. DeepSeek responses are capped at 512,000 bytes and 32,000 visible characters; generation requests allow 4,096 output tokens. Length-limited replies are marked in the UI.
+## API and compatibility
 
-Errors use `{"error":{"code":"invalid_key","message":"…"}}`. Failure categories include invalid/revoked keys, insufficient credit, throttling, timeout, network/provider failure, invalid model output, invalid input, and overloaded THRYV instances. Responses are `no-store` and carry a generated `X-Request-ID`.
+`/api/auth/register`, `/login`, `/logout` establish account identity. `/api/account/provider`, `/api/conversations`, `/api/devices`, and `/api/actions` are owned account APIs. Device-only `/api/companion/pair`, `/poll`, and `/actions/{id}/authorize|result` support pairing and scoped execution. Development OpenAPI is at `/docs`; production disables it. See [API details](docs/api-v1.md).
 
-## Testing and production builds
+V0's `/api/provider/connect` and `/api/chat` remain stateless, request-only bearer-BYOK endpoints. They cannot access saved state or execute tools. Existing V0 clients keep working; the V1 browser uses account-owned endpoints. V0's visual/chat/security test scenarios remain, with reload/disconnect assertions updated for the explicitly requested persistence behavior.
+
+## Checks and deployment
 
 ```bash
 cd backend
+uv run ruff check .
+uv run ruff format --check .
 uv run pytest -q
-uv run ruff check app tests
-uv run ruff format --check app tests
+uv run alembic check
+uv run pip-audit
+```
+
+```bash
+cd companion
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest -q
 uv run pip-audit
 ```
 
@@ -134,49 +156,4 @@ npx playwright install chromium
 npm test
 ```
 
-Playwright is a **development test dependency only**, not a THRYV runtime capability. It starts a test-only FastAPI server on port 8001 with a mocked DeepSeek HTTP transport and a Next.js server on port 3001. Desktop and mobile browser tests exercise the actual frontend → backend → orchestrator → provider integration without real credentials. Test traces are off; screenshots contain fake sessions only. Tests never read a real key from `.env`.
-
-Backend tests cover health, connection verification, context, schema failures, secrets in malformed inputs/errors, provider errors, redirects, timeouts, response validation, user isolation, body limits, concurrency admission, and CORS. CI runs the checks on pushes and pull requests.
-
-To run the built frontend locally:
-
-```bash
-cd frontend
-npm run build
-npm start
-```
-
-Run the backend separately as above. See [deployment preparation](docs/deployment.md) for frontend host and backend container configuration. **V0 has not been authorized for public deployment.**
-
-An optional manual browser smoke test is available after starting the real backend and frontend on ports 8000 and 3000. Add `DEEPSEEK_API_KEY` to ignored `backend/.env` locally, then run `node scripts/live-smoke.mjs` from `frontend/`. This makes **two paid chat requests** using that key, checks identity and follow-up context, and separately tries a fake invalid key. It prints pass/fail labels only, records no screenshots or traces, and disconnects afterward. The backend ignores this environment key for runtime requests. Remove the optional local entry when finished if you do not want to retain your development test credential on disk.
-
-## Current limitations
-
-- One DeepSeek provider, complete-message replies, and temporary text conversations only.
-- No accounts, saved keys, saved conversations, long-term memory, files, tools, browser/computer control, voice, or integrations.
-- Context is bounded; earlier details can fall out of context even while some remain visible.
-- Keys are held in normal process memory, not a hardware vault; JavaScript cannot guarantee secure memory erasure. Browser extensions and host-level logging are outside the app's control.
-- The per-process concurrency guard and body/time limits are an abuse foundation, not a distributed rate limiter. Public hosting needs HTTPS and edge request/connection/rate limits.
-- Provider connection verification does not guarantee sufficient API balance, future service availability, or answer accuracy.
-
-## Planned
-
-The next milestone should review V0 and authorize a controlled public deployment with HTTPS, host log redaction, edge abuse protection, and live acceptance checks. This repository prepares that deployment but does not publish it.
-
-Later milestones may add opt-in authenticated persistence, additional runtime providers, streaming, and a separately installed THRYV Companion. Any future action capability must follow input validation → permission evaluation → execution → observed result. Raw model output must never be trusted execution authority. Voice, browser control, device access, memory, integrations, and automations remain future work.
-
-## Project map
-
-- `frontend/components/workspace.tsx`: setup, session lifecycle, conversation and settings UI.
-- `frontend/components/provider-setup.tsx`, `brand.tsx`: connection form, welcome screen and shared branding.
-- `frontend/lib/api.ts`: safe requests and bounded conversation history.
-- `frontend/app/`: Next.js entry points, THRYV styling and icon.
-- `backend/app/api.py`: thin routes and per-request credentials/provider dependencies.
-- `backend/app/orchestrator.py`: single orchestrator and THRYV identity.
-- `backend/app/providers/`: provider protocol and DeepSeek HTTP integration.
-- `backend/app/middleware.py`: request limits and safe request logging.
-- `backend/app/config.py`, `schemas.py`, `errors.py`, `main.py`: configuration, validation, errors and lifecycle.
-- `backend/tests/`, `frontend/tests/`: isolated automated coverage.
-- `docs/`: security, deployment and verification documentation.
-
-Development boundary: use GPT-6 Astra for engineering. DeepSeek is a runtime provider, not a source-code author. Stop at V0; subsequent milestones need explicit instruction.
+[Deployment preparation](docs/deployment.md) describes the persistent volume, migrations, HTTPS/site layout, backups, and limits. Public deployment still requires an explicit user instruction. V1 has no voice, long-term memory, general browser automation, email, scheduling, unrestricted terminal, or V2/V3 features.

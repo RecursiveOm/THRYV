@@ -138,7 +138,7 @@ def test_body_size_and_cors(client):
         },
     )
     assert preflight.status_code == 200
-    assert "access-control-allow-credentials" not in preflight.headers
+    assert preflight.headers["access-control-allow-credentials"] == "true"
 
 
 async def test_concurrent_requests_are_isolated(app):

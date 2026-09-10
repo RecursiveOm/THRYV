@@ -34,6 +34,7 @@ export default defineConfig({
       env: {
         NEXT_PUBLIC_API_URL: "http://127.0.0.1:8001",
         NEXT_TELEMETRY_DISABLED: "1",
+        THRYV_TEST_BUILD: "1",
       },
       reuseExistingServer: false,
       timeout: 120_000,

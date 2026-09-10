@@ -25,6 +25,7 @@ if (
 }
 
 const config: NextConfig = {
+  distDir: process.env.THRYV_TEST_BUILD === "1" ? ".next-test" : ".next",
   poweredByHeader: false,
   devIndicators: false,
   turbopack: { root: process.cwd() },

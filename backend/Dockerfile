@@ -7,9 +7,12 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project
 COPY app ./app
-RUN useradd --create-home --uid 10001 thryv
+COPY migrations ./migrations
+COPY alembic.ini ./alembic.ini
+RUN chmod -R a+rX app migrations && chmod a+r alembic.ini
+RUN useradd --create-home --uid 10001 thryv && mkdir /data && chown thryv:thryv /data && chmod 700 /data
 USER thryv
-ENV PATH="/app/.venv/bin:$PATH" PORT=8000
+ENV PATH="/app/.venv/bin:$PATH" PORT=8000 DATABASE_URL=sqlite+aiosqlite:////data/thryv.db
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['PORT'] + '/health', timeout=3)"

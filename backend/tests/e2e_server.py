@@ -1,15 +1,34 @@
 """Test-only ASGI entry point. The production entry point never imports this module."""
 
 import json
+import tempfile
+from pathlib import Path
 
 import httpx
+from alembic import command
+from alembic.config import Config
+from cryptography.fernet import Fernet
 
 from app.api import provider
 from app.config import Settings
 from app.main import create_app
 from app.providers.deepseek import DeepSeekProvider
 
-app = create_app(Settings(app_env="test", frontend_origin="http://127.0.0.1:3001", _env_file=None))
+_directory = tempfile.TemporaryDirectory(prefix="thryv-browser-tests-")
+_url = f"sqlite+aiosqlite:///{_directory.name}/test.db"
+_migration = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+_migration.attributes["database_url"] = _url
+command.upgrade(_migration, "head")
+app = create_app(
+    Settings(
+        app_env="test",
+        frontend_origin="http://127.0.0.1:3001",
+        database_url=_url,
+        credential_encryption_key=Fernet.generate_key().decode(),
+        auth_attempts_per_minute=1000,
+        _env_file=None,
+    )
+)
 
 
 def mock_deepseek(request: httpx.Request) -> httpx.Response:
@@ -19,6 +38,30 @@ def mock_deepseek(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"id": "deepseek-flash"}]})
     messages = json.loads(request.content)["messages"]
     last = messages[-1]["content"]
+    if last == "Open Chrome on my laptop.":
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "I already opened it (untrusted text)",
+                            "tool_calls": [
+                                {
+                                    "type": "function",
+                                    "function": {
+                                        "name": "open_application",
+                                        "arguments": '{"application":"chrome"}',
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
     if last == "Simulate timeout":
         raise httpx.ReadTimeout("test-only-valid-key must never appear in errors")
     if last == "Show unsafe markup":

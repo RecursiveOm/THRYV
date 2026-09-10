@@ -11,23 +11,26 @@ stop; do not substitute another coding model. DeepSeek is the runtime provider o
 
 ## Scope
 
-The authorized milestone is **V0 only**: Next.js + TypeScript, FastAPI + Python,
-DeepSeek BYOK chat, one orchestrator, bounded session context, and deployment preparation.
-Do not begin authentication, persistence, other providers, voice, browser/computer
-control, Companion, tools, memory, email, automations or payments without a new instruction.
-Browser automation under `frontend/tests` is development testing, not a runtime feature.
+The authorized milestone is **V1 foundation only**, extending V0: accounts, durable owned
+conversations, encrypted BYOK, scoped Linux Companion, pairing, fixed tools, permissions,
+confirmations, and high-level action auditing. Preserve the working V0 chat API and UI.
+Do not start V2/V3 (voice, long-term memory, research/browser automation, email, scheduling,
+unrestricted terminal, payments, advanced GitHub integration). Browser automation in tests
+and opt-in acceptance scripts is engineering validation, not a runtime feature.
 
 ## Security invariants
 
-- Keys and conversations stay in tab memory and request-scoped backend memory.
-- No global current-user state, shared credentials, developer runtime key or database.
-- Never log or commit keys, headers, conversations, `.env`, tokens or raw provider errors.
-- Never expose credentials through public environment variables, URLs or telemetry.
-- Production origins use HTTPS and explicit CORS. Keep upstream URLs fixed.
-- Keep provider logic separate from thin routes and the one orchestrator.
-- Never interpret model output as execution authority. V0 executes no model-requested tools.
-- Mock DeepSeek in ordinary tests. Live smoke testing is explicit and opt-in, with a
-  locally provided key; never capture real credentials in browser traces or screenshots.
+- THRYV account identity is independent of DeepSeek keys; authorize every resource server-side.
+- Saved provider keys require explicit consent and authenticated encryption under a separate
+  server-only key. Only token hashes persist on the backend. No shared current-user state.
+- Never log or commit credentials, headers, messages, `.env`, tokens, or raw provider errors.
+- Production requires HTTPS, exact CORS, secure HttpOnly cookies, and CSRF checks on writes.
+- The model requests typed tools; trusted code owns allowlists, permissions, and authorization.
+- No shell, arbitrary command/executable/arguments, file access, or unrestricted device access.
+- Pairing/confirmations expire and are single-use. Device revocation and durable replay guards
+  must remain enforced. Never claim action success before the observed execution result.
+- Ordinary tests mock DeepSeek and desktop side effects. Real acceptance checks are opt-in;
+  use only a locally provided key and never record real credentials in traces/screenshots.
 
 ## Workflow
 
@@ -39,7 +42,7 @@ run relevant checks. Do not discard unrelated user work.
 
 Ask before destructive history rewrites, force pushes, deleting substantial existing work,
 destructive system/production operations, or meaningful paid infrastructure. Public
-deployment requires Omkar's explicit **"Deploy V0 now"** instruction.
+deployment requires Omkar's explicit deployment instruction.
 
 ## Checks
 
@@ -47,8 +50,8 @@ Backend, from `backend/`:
 
 ```bash
 uv sync --locked
-uv run ruff check app tests
-uv run ruff format --check app tests
+uv run ruff check app tests migrations scripts
+uv run ruff format --check app tests migrations scripts
 uv run pytest -q
 uv run pip-audit
 ```
@@ -66,4 +69,5 @@ npm test
 ```
 
 Keep README and `docs/` accurate. Report any unverified acceptance checks honestly.
-After V0 is tested, documented, committed and pushed, stop and wait for the next milestone.
+Companion checks: `uv run --project companion ruff check companion`, `uv run --project companion pytest companion/tests -q`, and its dependency audit.
+After V1 passes its real live acceptance gate, is documented, committed and pushed, stop. Do not start V2. Report missing live credentials or unverified checks honestly.

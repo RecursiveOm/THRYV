@@ -7,8 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
+from app.account_api import router as account_router
 from app.api import router
+from app.auth import install_auth
+from app.browser_security import BrowserSecurity
 from app.config import Settings
+from app.database import configure_database
+from app.device_api import router as device_router
 from app.errors import AppError
 from app.middleware import RequestBoundary
 
@@ -22,22 +27,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s %(message)s")
         # HTTP libraries' debug logs can contain request headers or provider details.
-        for name in ("httpx", "httpcore", "uvicorn.access"):
+        for name in ("httpx", "httpcore", "uvicorn.access", "sqlalchemy", "aiosqlite"):
             logging.getLogger(name).setLevel(logging.WARNING)
             logging.getLogger(name).disabled = True
+        if settings.app_env == "production":
+            from app.vault import cipher
+
+            cipher(settings)
         logger.info("THRYV starting")
         yield
+        await app.state.engine.dispose()
         logger.info("THRYV stopped")
 
     app = FastAPI(
         title="THRYV",
-        version="0.1.0",
+        version="1.0.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.app_env == "development" else None,
         redoc_url=None,
         openapi_url="/openapi.json" if settings.app_env == "development" else None,
     )
     app.state.settings = settings
+    configure_database(app, settings.database_url.get_secret_value())
+    install_auth(app, settings)
 
     @app.exception_handler(AppError)
     async def app_error(request: Request, exc: AppError):
@@ -64,19 +76,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException):
+        if request.url.path.startswith("/api/auth/"):
+            return JSONResponse(
+                {
+                    "error": {
+                        "code": "auth_failed",
+                        "message": (
+                            "Check your email and password. Registration requires a new "
+                            "email and a password of 12–128 characters."
+                        ),
+                    }
+                },
+                status_code=exc.status_code,
+            )
         return JSONResponse(
             {"error": {"code": "invalid_request", "message": "This request is not supported."}},
             status_code=exc.status_code,
         )
 
     app.include_router(router)
+    app.include_router(account_router)
+    app.include_router(device_router)
+    app.add_middleware(
+        BrowserSecurity,
+        origin=settings.frontend_origin,
+        auth_limit=settings.auth_attempts_per_minute,
+    )
     app.add_middleware(RequestBoundary, max_concurrent=settings.max_concurrent_requests)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
-        allow_credentials=False,
-        allow_methods=["GET", "POST"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "X-THRYV-Request"],
         expose_headers=["X-Request-ID"],
     )
     return app

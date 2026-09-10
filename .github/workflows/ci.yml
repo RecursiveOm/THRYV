@@ -17,7 +17,7 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked
         working-directory: backend
-      - run: uv run ruff check app tests && uv run ruff format --check app tests && uv run pytest -q
+      - run: uv run ruff check app tests migrations scripts && uv run ruff format --check app tests migrations scripts && uv run pytest -q
         working-directory: backend
       - run: uv run pip-audit
         working-directory: backend
@@ -44,3 +44,16 @@ jobs:
         working-directory: frontend
       - run: npm test
         working-directory: frontend
+
+  companion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.9"
+          python-version: "3.12"
+      - run: uv sync --locked
+        working-directory: companion
+      - run: uv run ruff check . && uv run ruff format --check . && uv run pytest -q && uv run pip-audit
+        working-directory: companion

@@ -10,9 +10,16 @@ class ProviderMessage(TypedDict):
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: dict
+
+
+@dataclass(frozen=True)
 class Completion:
     content: str
     truncated: bool = False
+    tool_call: ToolCall | None = None
 
 
 class ChatProvider(Protocol):
@@ -20,4 +27,8 @@ class ChatProvider(Protocol):
 
     async def complete(
         self, credential: SecretStr, messages: list[ProviderMessage]
+    ) -> Completion: ...
+
+    async def plan(
+        self, credential: SecretStr, messages: list[ProviderMessage], tools: list[dict]
     ) -> Completion: ...

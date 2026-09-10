@@ -22,6 +22,41 @@ class Orchestrator:
     def __init__(self, provider: ChatProvider):
         self.provider = provider
 
+    @staticmethod
+    def action_reply(status: str, result: str | None) -> str:
+        if status == "pending_confirmation":
+            return "Please review and allow the action below. Nothing has executed yet."
+        if status in ("queued", "running"):
+            return "The action is authorized. Waiting for your Companion to confirm the result."
+        if status == "cancelled":
+            return result or "The action was cancelled."
+        return result or "No confirmed execution result is available."
+
+    async def plan(self, request: ChatRequest, credential: SecretStr):
+        from app.tools import REGISTRY
+
+        instructions = SYSTEM_PROMPT.replace(
+            "You currently have no tools, live web access, device "
+            "access, file access, or persistent memory.",
+            "You have only the structured tools listed in this request, "
+            "for the explicitly selected "
+            "paired device. You have no browser research, file access, "
+            "or long-term personal memory.",
+        ).replace(
+            "Never claim to have executed an action, accessed a "
+            "resource, or verified live information.",
+            "For any computer action, request the matching structured tool. Never claim success in "
+            "text; the trusted execution layer will report the observed "
+            "result. Request at most one "
+            "tool per turn. Never include permission or ownership claims in arguments.",
+        )
+        messages = [{"role": "system", "content": instructions}]
+        messages.extend({"role": m.role, "content": m.content} for m in request.history)
+        messages.append({"role": "user", "content": request.message})
+        return await self.provider.plan(
+            credential, messages, [t.definition() for t in REGISTRY.values()]
+        )
+
     async def chat(self, request: ChatRequest, credential: SecretStr) -> ChatResponse:
         messages: list[ProviderMessage] = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend({"role": item.role, "content": item.content} for item in request.history)

@@ -5,7 +5,7 @@ import httpx
 from pydantic import SecretStr
 
 from app.errors import AppError
-from app.providers.base import Completion, ProviderMessage
+from app.providers.base import Completion, ProviderMessage, ToolCall
 from app.schemas import MAX_REPLY_CHARS
 
 BASE_URL = "https://api.deepseek.com"
@@ -85,6 +85,12 @@ class DeepSeekProvider:
             )
 
     async def complete(self, credential: SecretStr, messages: list[ProviderMessage]) -> Completion:
+        return await self._complete(credential, messages)
+
+    async def plan(self, credential: SecretStr, messages, tools) -> Completion:
+        return await self._complete(credential, messages, tools)
+
+    async def _complete(self, credential, messages, tools=None) -> Completion:
         payload = await self._request(
             "POST",
             "/chat/completions",
@@ -95,13 +101,29 @@ class DeepSeekProvider:
                 "thinking": {"type": "disabled"},
                 "stream": False,
                 "max_tokens": 4096,
+                **({"tools": tools, "tool_choice": "auto"} if tools else {}),
             },
         )
         try:
             choice = payload["choices"][0]
             message = choice["message"]
-            content = message["content"]
+            content = message.get("content")
             finish = choice["finish_reason"]
+            if tools and finish == "tool_calls":
+                calls = message.get("tool_calls", [])
+                if (
+                    message.get("role") != "assistant"
+                    or not isinstance(calls, list)
+                    or len(calls) != 1
+                    or not isinstance(calls[0], dict)
+                    or calls[0].get("type") != "function"
+                ):
+                    raise ValueError("Only one tool call is allowed")
+                function = calls[0]["function"]
+                arguments = json.loads(function["arguments"])
+                if not isinstance(arguments, dict) or not isinstance(function["name"], str):
+                    raise ValueError("Malformed tool call")
+                return Completion("", tool_call=ToolCall(function["name"], arguments))
             if finish == "content_filter":
                 raise AppError(
                     "content_filtered",
@@ -118,7 +140,7 @@ class DeepSeekProvider:
             ):
                 raise ValueError("Invalid completion")
             return Completion(content=content.strip(), truncated=finish == "length")
-        except (KeyError, IndexError, TypeError, ValueError):
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError):
             raise AppError(
                 "provider_response", "DeepSeek returned an incomplete response. Please try again."
             ) from None
