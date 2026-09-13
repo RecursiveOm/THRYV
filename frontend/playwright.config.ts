@@ -7,7 +7,13 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: 2,
   reporter: "list",
-  use: { baseURL: "http://127.0.0.1:3001", trace: "off", screenshot: "off" },
+  use: {
+    baseURL: "http://127.0.0.1:3001",
+    trace: "off",
+    channel: "chromium",
+    screenshot: "off",
+    launchOptions: { args: ["--use-fake-device-for-media-stream"] },
+  },
   projects: [
     {
       name: "desktop",
@@ -24,7 +30,7 @@ export default defineConfig({
   webServer: [
     {
       command:
-        "uv run --project ../backend --directory ../backend uvicorn tests.e2e_server:app --host 127.0.0.1 --port 8001 --no-access-log",
+        "uv run --inexact --project ../backend --directory ../backend uvicorn tests.e2e_server:app --host 127.0.0.1 --port 8001 --no-access-log",
       url: "http://127.0.0.1:8001/health",
       reuseExistingServer: false,
     },

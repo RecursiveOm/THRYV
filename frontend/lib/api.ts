@@ -1,5 +1,9 @@
 export type Message = { role: "user" | "assistant"; content: string };
-export type Reply = { message: Message; truncated: boolean };
+export type Reply = {
+  message: Message;
+  truncated: boolean;
+  action?: Action | null;
+};
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -157,6 +161,11 @@ export async function accountRequest<T>(
     const code = payload?.error?.code || "internal_error";
     const accountErrors: Record<string, string> = {
       unauthenticated: "Sign in to continue.",
+      memory_secret:
+        "Credentials and possible secrets cannot be saved as memory.",
+      memory_disabled: "Memory is disabled. Enable it in the Memory panel.",
+      memory_full: "Delete a memory before adding another (limit 200).",
+      invalid_memory: "Use 3–500 characters for a durable memory.",
       auth_failed:
         "Check your email and password. New accounts need a unique email and a password of 12–128 characters.",
       vault_unavailable:

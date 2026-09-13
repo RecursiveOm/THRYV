@@ -15,7 +15,10 @@ from app.config import Settings
 from app.database import configure_database
 from app.device_api import router as device_router
 from app.errors import AppError
+from app.memory_api import router as memory_router
 from app.middleware import RequestBoundary
+from app.speech import LocalSpeech
+from app.voice_api import router as voice_router
 
 logger = logging.getLogger("thryv")
 
@@ -41,13 +44,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="THRYV",
-        version="1.0.0",
+        version="2.0.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.app_env == "development" else None,
         redoc_url=None,
         openapi_url="/openapi.json" if settings.app_env == "development" else None,
     )
     app.state.settings = settings
+    app.state.speech = LocalSpeech(settings)
     configure_database(app, settings.database_url.get_secret_value())
     install_auth(app, settings)
 
@@ -96,6 +100,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(router)
     app.include_router(account_router)
+    app.include_router(memory_router)
+    app.include_router(voice_router)
     app.include_router(device_router)
     app.add_middleware(
         BrowserSecurity,

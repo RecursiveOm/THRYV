@@ -39,7 +39,7 @@ const config: NextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
           {
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            value: "camera=(), microphone=(self), geolocation=()",
           },
           {
             key: "Content-Security-Policy",
@@ -50,6 +50,7 @@ const config: NextConfig = {
               "frame-ancestors 'none'",
               "form-action 'self'",
               "img-src 'self' data:",
+              "media-src 'self' blob:",
               "font-src 'self'",
               "style-src 'self' 'unsafe-inline'",
               `script-src 'self' 'unsafe-inline'${production ? "" : " 'unsafe-eval'"}`,

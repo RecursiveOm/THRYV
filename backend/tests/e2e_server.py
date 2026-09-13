@@ -13,6 +13,8 @@ from app.api import provider
 from app.config import Settings
 from app.main import create_app
 from app.providers.deepseek import DeepSeekProvider
+from app.voice_api import speech
+from tests.test_v2 import FakeSpeech
 
 _directory = tempfile.TemporaryDirectory(prefix="thryv-browser-tests-")
 _url = f"sqlite+aiosqlite:///{_directory.name}/test.db"
@@ -38,7 +40,9 @@ def mock_deepseek(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"id": "deepseek-flash"}]})
     messages = json.loads(request.content)["messages"]
     last = messages[-1]["content"]
-    if last == "Open Chrome on my laptop.":
+    if last in ("Open Chrome on my laptop.", "Get system information from my paired device"):
+        tool = "open_application" if last.startswith("Open") else "get_system_info"
+        args = '{"application":"chrome"}' if tool == "open_application" else "{}"
         return httpx.Response(
             200,
             json={
@@ -51,8 +55,8 @@ def mock_deepseek(request: httpx.Request) -> httpx.Response:
                                 {
                                     "type": "function",
                                     "function": {
-                                        "name": "open_application",
-                                        "arguments": '{"application":"chrome"}',
+                                        "name": tool,
+                                        "arguments": args,
                                     },
                                 }
                             ],
@@ -64,7 +68,13 @@ def mock_deepseek(request: httpx.Request) -> httpx.Response:
         )
     if last == "Simulate timeout":
         raise httpx.ReadTimeout("test-only-valid-key must never appear in errors")
-    if last == "Show unsafe markup":
+    if last == "What Python package workflow do I prefer?":
+        answer = (
+            "You prefer uv for Python projects."
+            if "Python projects to use uv" in messages[0]["content"]
+            else "I have no saved preference."
+        )
+    elif last == "Show unsafe markup":
         answer = (
             '<script>alert("unsafe")</script>\n\n[bad link](javascript:alert(1))\n\n'
             "![tracking](https://tracker.invalid/image)\n\n**Safe formatting**"
@@ -89,3 +99,5 @@ async def test_provider():
 
 
 app.dependency_overrides[provider] = test_provider
+
+app.dependency_overrides[speech] = lambda: FakeSpeech()

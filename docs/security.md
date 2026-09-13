@@ -1,6 +1,6 @@
-# THRYV V1 security design and review
+# THRYV V2 security design and review
 
-V1 separates account identity, provider credentials, and device credentials. The server is trusted to hold account data and decrypt saved DeepSeek keys. Companion is trusted to execute the two implemented handlers and report honestly. A compromised backend can authorize those handlers; a compromised desktop user can already run arbitrary programs outside Companion. Neither is a sandbox against its own administrator.
+The inherited V1 foundation separates account identity, provider credentials, and device credentials. The server is trusted to hold account data and decrypt saved DeepSeek keys. Companion is trusted to execute the two implemented handlers and report honestly. A compromised backend can authorize those handlers; a compromised desktop user can already run arbitrary programs outside Companion. Neither is a sandbox against its own administrator.
 
 ## Identity and ownership
 
@@ -50,7 +50,7 @@ Chrome opens a fixed blank page using a dedicated 0700 profile and X11 flags. Th
 
 Per-action records retain owner, device, tool, validated arguments, permission, current status, creation/expiry timestamps, and sanitized result. Deleting a chat keeps its action records, with the conversation reference cleared. There is no user-facing action deletion API. Records are not an immutable transition-by-transition audit service. Invalid requests log controlled error codes; rejected arbitrary model text is not copied into the action database.
 
-Application logs contain random request IDs, status, duration, and fixed error codes. Header/body/provider error/exception text is suppressed, and HTTP/SQL debug loggers are disabled. Boundaries limit bodies to 150 KB, read time to ten seconds, concurrency to twenty requests per process, provider replies to 512 KB, model output to 32,000 characters, and context to ten complete turns/32,000 characters. UI/list result counts are bounded. Rate limiting is twenty auth/pairing attempts per direct client IP per minute per process, with bounded in-memory buckets. Production reverse proxies must apply their own shared limits; blindly trusting forwarded IP headers is not enabled. There are no per-account disk quotas or retention jobs yet. SQLite is intended for a small single-host service with one backend worker.
+Application logs contain random request IDs, status, duration, and fixed error codes. Header/body/provider error/exception text is suppressed, and HTTP/SQL debug loggers are disabled. Boundaries limit bodies to 150 KB (960,044 bytes only for voice transcription/wake recognition), read time to ten seconds, concurrency to twenty requests per process, provider replies to 512 KB, model output to 32,000 characters, and context to ten complete turns/32,000 characters. UI/list result counts are bounded. Rate limiting is twenty auth/pairing attempts per direct client IP per minute per process, with bounded in-memory buckets. Production reverse proxies must apply their own shared limits; blindly trusting forwarded IP headers is not enabled. There are no per-account disk quotas or retention jobs yet. SQLite is intended for a small single-host service with one backend worker.
 
 ## Review findings and validation
 
@@ -61,3 +61,57 @@ Application logs contain random request IDs, status, duration, and fixed error c
 - This is an engineering threat review with executable checks, not an external penetration test or a claim of complete security. Review current dependency advisories and hosting controls again at public deployment.
 
 References: [FastAPI Users database strategy](https://fastapi-users.github.io/fastapi-users/latest/configuration/authentication/strategies/database/), [cookie transport](https://fastapi-users.github.io/fastapi-users/latest/configuration/authentication/transports/cookie/), [Fernet](https://cryptography.io/en/latest/fernet/).
+
+## V2 voice and memory review
+
+Memory APIs require an account session and bind every query/delete/setting to that account.
+The client cannot submit an owner. Writes use the existing exact-Origin/custom-header checks.
+Explicit “remember” requests are validated before storing their chat turn or contacting DeepSeek;
+ordinary chats are never automatically extracted into memory. Obvious credential labels, provider
+key/token shapes, credential URLs, Unicode-obfuscated labels, and long mixed high-entropy strings
+are rejected with fixed safe errors. This conservative detector can reject innocent text and cannot
+identify every arbitrary, unlabelled secret; users must not enter secrets. Existing test sentinels
+are verified absent from memory, chat rows, provider requests, and application logs.
+
+Memories are normal database text, not application-encrypted. Delete/clear removes active records,
+not backup/journal copies or separate chat messages that mentioned them. Disable blocks new saves
+and future retrieval; it does not erase retained memories or facts already sent in a conversation.
+A request already in progress may finish with context it retrieved before deletion/disable.
+Retrieval is owner-scoped and limited to four relevant facts/1,600 characters from at most 200
+records. Structured memory text is labelled data, not authority or tool permission.
+
+Microphone access is explicit and same-origin only. Audio capture is capped at 30 seconds,
+resampled to mono 16-bit/16 kHz PCM WAV, checked server-side, and held only in memory. Tracks stop
+on finish/cancel/conversation switch/logout. The transcript enters the same authenticated chat
+route, including device ownership and CONFIRM enforcement. A voice request itself cannot approve
+a tool. TTS reads the existing response rather than generating a separate AI response. Intermediate
+queued/running tool messages are not automatically synthesized; observed results drive playback.
+
+Local CPU inference uses a fixed Python worker/module and host-configured model path, no shell
+or model-specified executable/arguments. The worker receives audio/text over stdin and inherits
+only minimal locale/path/offline settings, never the provider or vault keys. Models load locally;
+runtime inference does not download them. One worker runs per backend process, with a bounded
+two-second wait for a previous worker and 50-second execution timeout. Disconnect/cancel kills
+unfinished inference and releases the slot. Outputs are bounded; stderr and raw exceptions are
+suppressed. This is process isolation for cleanup and credential separation, not an OS sandbox.
+Treat local model files and host administrators as trusted. Default container builds omit speech
+dependencies; the opt-in voice image includes them but never includes model files or credentials.
+
+Personality instructions allow context-sensitive warmth and light banter. Trusted confirmation,
+permission, error and observed-result messages are not rewritten by the model. No browser/research,
+new desktop tools or unrestricted execution has been introduced.
+
+Wake listening is off by default and stores only an owned boolean preference. No custom keyword
+is accepted. `/api/voice/wake` requires that opt-in and configured local acoustic assets, and
+has no provider/chat/tool dispatch dependency. Wake is clearly labeled Beta: its known misses
+and false activations are not treated as a security guarantee. The pipeline requires
+an acoustic THRYV detection, locates its boundary, rejects non-invocation prefixes, and uses
+unbiased local STT for the buffered command. A transcript cannot create activation. Rejected
+speech never reaches DeepSeek or durable application state. Acoustic detection does not authenticate speakers
+or make background speech harmless. The normal tool permission system remains the authority.
+
+VAD keeps a short pre-roll, requires sustained sound, and ends after 1.3 seconds of silence.
+One browser-origin Web Lock is held through capture, processing and playback, preventing competing
+tabs from duplicating an utterance. Generation guards prevent VAD/manual-Finish/cancel races.
+Wake mode pauses while processing and speaking and does not listen when the tab is hidden.
+The per-account On/Off preference persists; the browser still enforces microphone permission.

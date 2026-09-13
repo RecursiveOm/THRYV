@@ -4,15 +4,26 @@
 
 THRYV is a personal AI workspace for thinking, writing, learning, and taking small, authorized actions on your own computer. Creator attribution never implies the current user's identity. Engineering uses **GPT-6 Astra only**; DeepSeek is the runtime provider.
 
-## V1 foundation
+## V2 — Voice and personal memory
 
-V1 extends the working Next.js/TypeScript and FastAPI V0 with accounts, durable owned conversations, encrypted saved DeepSeek credentials, paired devices, a scoped Linux Companion, confirmations, and action auditing. The cream-and-green UI retains chat, Markdown, starter prompts, provider errors, and responsive layouts.
+V2 extends the working V1 accounts, owned chats, encrypted BYOK, and scoped Linux Companion.
+You can talk to THRYV, hear replies, and explicitly save useful preferences, facts, projects,
+and decisions across sessions. Text and speech share one warm, conversational personality;
+technical answers, confirmations, errors, and device results remain clear and truthful.
 
-**The full live DeepSeek → Chrome acceptance gate passed on September 11, 2026**, including approval, observed-window success, reload persistence, action auditing, and revocation. See [verification](docs/verification.md) for exact results and limitations. V2 is not authorized or started.
+See [V2 architecture and setup](docs/v2.md) and [verification](docs/verification.md) for
+acceptance evidence and limits. The historical [V1 report](docs/verification-v1.md) retains
+the real DeepSeek → confirmed Chrome launch gate. V3 browser/research work starts only after V2 is committed and pushed.
 
 ```mermaid
 flowchart TD
-    UI[Browser: account session and saved chats] --> API[FastAPI: authentication and ownership]
+    Mic[Explicit microphone capture] --> STT[Local faster-whisper]
+    STT --> UI[Browser: account session and saved chats]
+    UI --> API[FastAPI: authentication and ownership]
+    API --> Memories[Owned explicit memories: bounded relevant retrieval]
+    Memories --> O
+    Result[Observed reply] --> TTS[Local Piper]
+    TTS --> Speaker[Browser playback and stop]
     API --> DB[(SQLite: durable state)]
     API --> Vault[Decrypt this user's saved key]
     Vault --> O[Single THRYV orchestrator]
@@ -59,6 +70,36 @@ Open **http://localhost:3000**, create an account (12–128 character password),
 
 Backend and frontend hostnames must match the configured origin exactly. `localhost` and `127.0.0.1` are different origins; do not mix them.
 
+## Use voice and personal memory
+
+From `backend/`, install local speech and download its models once:
+
+```bash
+uv sync --locked --extra voice
+uv run --extra voice python scripts/setup_voice.py
+uv run --extra voice uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
+```
+
+Select **Talk**, grant microphone access, speak, then pause for about 1.3 seconds to send automatically. **Finish & send** remains a fallback. Recording
+stops after 30 seconds. Speech runs on your THRYV backend host; only the transcript enters
+the existing chat/orchestrator. **Stop voice** releases capture or stops playback.
+**Speak voice replies** controls automatic reading, and **Read reply** reads the latest reply.
+A connected Companion is needed for computer tools; voice never grants approval.
+**Settings → Voice → Wake word (Beta)** enables the one fixed keyword **THRYV**.
+It defaults Off and may miss invocations or mis-detect similar-sounding words. Talk is the
+recommended reliable fallback. Wake-triggered tools still follow SAFE/CONFIRM/BLOCKED permissions.
+“Hey Thryv, open Chrome” retains the command in the same utterance and still requires approval.
+
+Say or type **“Remember that I prefer Python projects to use uv.”** Then start another
+conversation and ask **“What Python package workflow do I prefer?”** The **Memory** panel
+supports adding, viewing, deleting, clearing, and disabling memories. Ordinary chats do not
+become memories automatically. Bare “remember this” asks you to provide the fact explicitly.
+
+Speech currently supports English, reads up to 600 characters, and requires HTTPS or localhost
+microphone access. Missing models or denied microphone access leave text chat available.
+Audio is held in memory, not saved. Transcripts are ordinary saved chat messages. See
+[model setup, licensing, privacy and limits](docs/v2.md).
+
 ## Pair your Linux computer
 
 Run Companion as your regular desktop user, in a terminal inside the graphical session. It opens no listening ports. Chrome and VS Code must be installed in the supported trusted system locations.
@@ -80,7 +121,7 @@ Run Companion as your regular desktop user, in a terminal inside the graphical s
 
 5. Select your online device, ask **“Open Chrome on my laptop.”**, and review **Allow action**. THRYV reports success only after Companion observes a new matching window. Review **Recent Actions**; **Revoke** invalidates the credential and cancels pending work.
 
-For a remote backend use its HTTPS origin. HTTP is accepted only on loopback. Companion credentials live in `~/.local/share/thryv-companion/device.json` (0600) inside a 0700 directory. `--state-dir` supports separate pairings. Revoke the old device before pairing with a new state directory. Stop with Ctrl+C; there is no installer, auto-start service, or auto-updater in V1.
+For a remote backend use its HTTPS origin. HTTP is accepted only on loopback. Companion credentials live in `~/.local/share/thryv-companion/device.json` (0600) inside a 0700 directory. `--state-dir` supports separate pairings. Revoke the old device before pairing with a new state directory. Stop with Ctrl+C; there is no installer, auto-start service, or auto-updater.
 
 | Tool | Permission | Execution |
 | --- | --- | --- |
@@ -95,7 +136,7 @@ Chrome uses a dedicated local profile at `~/.local/share/thryv-companion/chrome-
 - FastAPI Users handles registration/password verification using Argon2. Independent random database-backed sessions expire after seven days. Cookies are HttpOnly, SameSite=Lax, Secure in production, and host-only. Only SHA-256 digests of high-entropy session/device/pairing tokens persist server-side.
 - Each resource query checks the authenticated account or paired device's ownership. API keys never identify accounts. Browser mutations require exact `Origin` and `X-THRYV-Request: 1`; CORS allows one configured frontend and credentialed requests.
 - Provider keys are saved only with explicit consent, using authenticated Fernet encryption and owner binding under a server-held key. The host must be trusted: it decrypts the key to call DeepSeek. Saved keys are never sent back to the frontend or to Companion.
-- Conversations are durable database records, **not application-encrypted**. Protect disk volumes/backups and host access. The UI loads 100 recent turns per chat; generation uses at most 10 complete recent turns within 32,000 characters. Lists are bounded; no full-text search or export UI in V1.
+- Conversations are durable database records, **not application-encrypted**. Protect disk volumes/backups and host access. The UI loads 100 recent turns per chat; generation uses at most 10 complete recent turns within 32,000 characters. Lists are bounded; no full-text search or export UI.
 - One structured action per model turn. Confirmations expire after 120 seconds, are bound to the initiating session/user/action, and are consumed once. Dispatch/result windows are 30 seconds. A database claim and local durable execution ledger prevent automatic replay. Uncertain outcomes are never automatically re-executed.
 - Audit records keep user/device/tool/validated arguments/permission/status/timestamps and sanitized results. They survive conversation deletion. This is a high-level record per action, not a tamper-proof event archive.
 - Logs contain controlled status/error codes, duration, and random request IDs. No keys, passwords, message text, token headers, raw exceptions, or provider error bodies. Markdown rejects active HTML, tracking images, and unsafe link schemes.
@@ -116,6 +157,9 @@ Read the [security review and threat boundaries](docs/security.md) before hostin
 | `PROVIDER_TIMEOUT_SECONDS` | 60; browser waits up to 70 seconds |
 | `MAX_CONCURRENT_REQUESTS` | 20 per process |
 | `LOG_LEVEL` | INFO; controlled metadata |
+| `STT_MODEL_PATH` | `.models/whisper-base.en`; optional local English recognizer |
+| `WAKE_MODEL_PATH` | `.models/whisper-small.en`; optional local invocation recognizer |
+| `TTS_MODEL_PATH` | `.models/en_US-lessac-medium.onnx`; optional local voice plus adjacent JSON |
 
 Frontend `NEXT_PUBLIC_API_URL` defaults to `http://localhost:8000`, and is compiled at build time. **Never place any credential in a `NEXT_PUBLIC_*` variable.** `DEEPSEEK_API_KEY` in ignored backend `.env` or repository-root `.env` is only for the opt-in local acceptance script; production runtime never uses a developer key.
 
@@ -125,17 +169,17 @@ The default provider uses non-thinking, non-streaming DeepSeek chat completions 
 
 `/api/auth/register`, `/login`, `/logout` establish account identity. `/api/account/provider`, `/api/conversations`, `/api/devices`, and `/api/actions` are owned account APIs. Device-only `/api/companion/pair`, `/poll`, and `/actions/{id}/authorize|result` support pairing and scoped execution. Development OpenAPI is at `/docs`; production disables it. See [API details](docs/api-v1.md).
 
-V0's `/api/provider/connect` and `/api/chat` remain stateless, request-only bearer-BYOK endpoints. They cannot access saved state or execute tools. Existing V0 clients keep working; the V1 browser uses account-owned endpoints. V0's visual/chat/security test scenarios remain, with reload/disconnect assertions updated for the explicitly requested persistence behavior.
+V0's `/api/provider/connect` and `/api/chat` remain stateless, request-only bearer-BYOK endpoints. They cannot access saved state or execute tools. Existing V0 clients keep working; the current browser uses account-owned endpoints. V0's visual/chat/security test scenarios remain, with reload/disconnect assertions updated for the explicitly requested persistence behavior.
 
 ## Checks and deployment
 
 ```bash
 cd backend
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest -q
-uv run alembic check
-uv run pip-audit
+uv run --extra voice ruff check app tests migrations scripts
+uv run --extra voice ruff format --check app tests migrations scripts
+uv run --extra voice pytest -q
+uv run --extra voice alembic check
+uv run --extra voice pip-audit
 ```
 
 ```bash
@@ -156,4 +200,4 @@ npx playwright install chromium
 npm test
 ```
 
-[Deployment preparation](docs/deployment.md) describes the persistent volume, migrations, HTTPS/site layout, backups, and limits. Public deployment still requires an explicit user instruction. V1 has no voice, long-term memory, general browser automation, email, scheduling, unrestricted terminal, or V2/V3 features.
+[Deployment preparation](docs/deployment.md) describes the persistent volume, migrations, HTTPS/site layout, backups, and limits. Public deployment still requires an explicit user instruction. V2 has no custom wake words, general browser/research automation, email, scheduling, or unrestricted terminal.

@@ -40,3 +40,6 @@ frontend/next-env.d.ts
 *.sqlite-*
 
 .next-test/
+
+.models/
+*.wav

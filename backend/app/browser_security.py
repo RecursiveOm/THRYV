@@ -19,7 +19,15 @@ class BrowserSecurity:
         path = scope["path"]
         headers = dict(scope["headers"])
         browser_api = path.startswith(
-            ("/api/auth/", "/api/account", "/api/conversations", "/api/devices", "/api/actions")
+            (
+                "/api/auth/",
+                "/api/account",
+                "/api/conversations",
+                "/api/devices",
+                "/api/actions",
+                "/api/memories",
+                "/api/voice",
+            )
         )
         if browser_api and scope["method"] not in ("GET", "HEAD", "OPTIONS"):
             if (

@@ -11,12 +11,18 @@ stop; do not substitute another coding model. DeepSeek is the runtime provider o
 
 ## Scope
 
-The authorized milestone is **V1 foundation only**, extending V0: accounts, durable owned
-conversations, encrypted BYOK, scoped Linux Companion, pairing, fixed tools, permissions,
-confirmations, and high-level action auditing. Preserve the working V0 chat API and UI.
-Do not start V2/V3 (voice, long-term memory, research/browser automation, email, scheduling,
-unrestricted terminal, payments, advanced GitHub integration). Browser automation in tests
-and opt-in acceptance scripts is engineering validation, not a runtime feature.
+Finish **V2 first**: local push-to-talk speech and explicit user-owned
+personal memory, with a consistent warm, truthful personality. Include silence-based VAD and
+explicit opt-in wake listening for the one fixed THRYV keyword; no custom wake-word field.
+Preserve V0/V1.
+Finish tests, live acceptance, security review, migrations, documentation, commit and push.
+Wake listening is explicitly Beta, off by default; documented imperfect accuracy does not
+block V2 when stable voice and permission safeguards pass. Do not further tune wake models.
+After V2 passes, is committed and pushed, implement **V3 browser + live research only** using
+the existing orchestrator and permission boundaries. Use isolated public browsing, bounded
+research, real source grounding and prompt-injection defenses. Do not start V4 or add email/calendar/Drive, scheduling,
+proactive tasks, payments, broad provider support, code-editing agents, or unrestricted
+terminal. No sub-agents are requested.
 
 ## Security invariants
 
@@ -70,4 +76,5 @@ npm test
 
 Keep README and `docs/` accurate. Report any unverified acceptance checks honestly.
 Companion checks: `uv run --project companion ruff check companion`, `uv run --project companion pytest companion/tests -q`, and its dependency audit.
-After V1 passes its real live acceptance gate, is documented, committed and pushed, stop. Do not start V2. Report missing live credentials or unverified checks honestly.
+Close V2 and push before starting V3. After V3 passes, document, review, commit and push,
+report verified results and remaining limitations, then stop. Do not begin V4.

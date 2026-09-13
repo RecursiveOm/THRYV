@@ -9,7 +9,9 @@ from app.api import Provider
 from app.auth import COOKIE_NAME, DB, Account, digest
 from app.database import Action, ChatTurn, Conversation, ProviderCredential, conversation_clock, now
 from app.errors import AppError
+from app.memory import explicit_memory, retrieve, save
 from app.orchestrator import Orchestrator
+from app.providers.base import Completion
 from app.schemas import ChatRequest, Message, UserText
 from app.tools import REGISTRY
 from app.vault import decrypt_key, encrypt_key
@@ -205,6 +207,7 @@ async def send_message(
             },
             "truncated": False,
         }
+    remembered = explicit_memory(body.message)
     stored_key = await db.get(ProviderCredential, user.id)
     if stored_key is None:
         raise AppError("missing_key", "Connect your DeepSeek key in provider settings.", 409)
@@ -248,9 +251,14 @@ async def send_message(
     action = None
     truncated = False
     try:
-        completion = await Orchestrator(runtime).plan(
-            ChatRequest(message=body.message, history=history), key
-        )
+        if remembered:
+            item_memory = await save(db, user.id, *remembered)
+            completion = Completion("Saved to your personal memory: " + item_memory.content)
+        else:
+            relevant = await retrieve(db, user.id, body.message)
+            completion = await Orchestrator(runtime).plan(
+                ChatRequest(message=body.message, history=history), key, relevant
+            )
         truncated = completion.truncated
         if completion.tool_call:
             if not body.device_id:

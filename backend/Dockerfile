@@ -3,9 +3,14 @@ FROM python:3.12-slim
 
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /app
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_NO_CACHE=1 PYTHONUNBUFFERED=1
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev --no-install-project
+ARG INSTALL_VOICE=false
+RUN if [ "$INSTALL_VOICE" = "true" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends libgomp1 build-essential cmake && \
+      uv sync --locked --no-dev --no-install-project --extra voice && \
+      apt-get purge -y --auto-remove build-essential cmake && rm -rf /var/lib/apt/lists/*; \
+    else uv sync --locked --no-dev --no-install-project; fi
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./alembic.ini

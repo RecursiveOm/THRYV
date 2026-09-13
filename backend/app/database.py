@@ -135,3 +135,32 @@ def configure_database(app, url: str):
 async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
     async with request.app.state.sessions() as session:
         yield session
+
+
+class MemorySetting(Base):
+    __tablename__ = "memory_setting"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    enabled: Mapped[bool] = mapped_column(default=True)
+
+
+class PersonalMemory(Base):
+    __tablename__ = "personal_memory"
+    __table_args__ = (UniqueConstraint("user_id", "content_hash"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    category: Mapped[str] = mapped_column(String(20))
+    content: Mapped[str] = mapped_column(String(500))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[int] = mapped_column(Integer, default=now)
+
+
+class VoiceSetting(Base):
+    __tablename__ = "voice_setting"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    wake_enabled: Mapped[bool] = mapped_column(default=False)

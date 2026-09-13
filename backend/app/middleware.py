@@ -59,7 +59,12 @@ class RequestBoundary:
                     if incoming["type"] == "http.disconnect":
                         return
                     body.extend(incoming.get("body", b""))
-                    if len(body) > MAX_BODY_BYTES:
+                    limit = (
+                        960_044
+                        if scope["path"] in {"/api/voice/transcribe", "/api/voice/wake"}
+                        else MAX_BODY_BYTES
+                    )
+                    if len(body) > limit:
                         await reject(
                             "request_too_large",
                             "This request is too large. Shorten your message.",

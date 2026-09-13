@@ -34,6 +34,8 @@ import {
 
 import { Authentication } from "./authentication";
 import { Devices, RecentActions } from "./devices";
+import { MemoryPanel } from "./memory-panel";
+import { VoiceControls } from "./voice-controls";
 
 const starters = [
   {
@@ -131,6 +133,8 @@ function SignedWorkspace({
   const [actions, setActions] = useState<Action[]>([]);
   const [deviceId, setDeviceId] = useState("");
   const [panel, setPanel] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [voiceReset, setVoiceReset] = useState(0);
   const conversationRef = useRef("");
   const selection = useRef(0);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -234,7 +238,6 @@ function SignedWorkspace({
         ]);
         if (!active) return;
         setDevices(paired);
-        setActions(recent);
         setConversations(chats);
         const available = paired.filter((d) => d.status !== "revoked");
         setDeviceId((previous) =>
@@ -256,6 +259,7 @@ function SignedWorkspace({
           if (active && !controller.current && conversationRef.current === id)
             setMessages(chat.messages || []);
         }
+        if (active) setActions(recent);
       } catch (e) {
         if (active && e instanceof ApiError && e.code === "unauthenticated")
           onSignOut();
@@ -272,6 +276,7 @@ function SignedWorkspace({
   }, [onSignOut]);
 
   function reset() {
+    setVoiceReset((value) => value + 1);
     controller.current?.abort();
     controller.current = null;
     setMessages([]);
@@ -333,7 +338,10 @@ function SignedWorkspace({
 
   async function send(event: FormEvent) {
     event.preventDefault();
-    const text = draft.trim();
+    await sendText(draft.trim());
+  }
+  async function sendText(text: string, fromVoice = false) {
+    if (!fromVoice) setVoiceReset((value) => value + 1);
     if (!text || controller.current || !key) return;
     const current = new AbortController();
     controller.current = current;
@@ -378,6 +386,13 @@ function SignedWorkspace({
         );
       }
       if (!current.signal.aborted) {
+        if (reply.action) {
+          const action = reply.action;
+          setActions((previous) => [
+            action,
+            ...previous.filter((item) => item.id !== action.id),
+          ]);
+        }
         setMessages((previous) =>
           [
             ...previous,
@@ -514,6 +529,12 @@ function SignedWorkspace({
           </button>
         </header>
         <div className="workspace-toolbar">
+          <button
+            onClick={() => setMemoryOpen(!memoryOpen)}
+            aria-expanded={memoryOpen}
+          >
+            Memory
+          </button>
           <label htmlFor="device-picker">Device</label>
           <select
             id="device-picker"
@@ -560,6 +581,11 @@ function SignedWorkspace({
         <div
           className={`chat-scroll ${messages.length || pending ? "has-messages" : ""}`}
         >
+          {memoryOpen && (
+            <div className="tools-panel">
+              <MemoryPanel />
+            </div>
+          )}
           {panel && (
             <div className="tools-panel">
               <Devices devices={devices} refresh={refresh} />
@@ -710,6 +736,20 @@ function SignedWorkspace({
           )}
         </div>
         <div className="composer-area">
+          <VoiceControls
+            onTranscript={(text) => sendText(text, true)}
+            reply={
+              [...messages].reverse().find((m) => m.role === "assistant")
+                ?.content || ""
+            }
+            busy={Boolean(pending)}
+            waitingForDevice={actions.some(
+              (action) =>
+                action.conversation_id === conversation &&
+                ["queued", "running"].includes(action.status),
+            )}
+            key={voiceReset}
+          />
           {error && (
             <div className="composer-feedback error" role="alert">
               <p>{error}</p>

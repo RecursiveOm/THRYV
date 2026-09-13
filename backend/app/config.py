@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     database_url: SecretStr = SecretStr("sqlite+aiosqlite:///./thryv.db")
     credential_encryption_key: SecretStr | None = None
     auth_attempts_per_minute: int = Field(default=20, ge=1, le=1000)
+    stt_model_path: str = ".models/whisper-base.en"
+    wake_model_path: str = ".models/thryv-wake"
+    tts_model_path: str = ".models/en_US-lessac-medium.onnx"
     session_lifetime_seconds: int = Field(default=604800, ge=60, le=2592000)
 
     @model_validator(mode="after")

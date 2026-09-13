@@ -15,11 +15,11 @@ jobs:
         with:
           version: "0.12.9"
           python-version: "3.12"
-      - run: uv sync --locked
+      - run: uv sync --locked --extra voice
         working-directory: backend
-      - run: uv run ruff check app tests migrations scripts && uv run ruff format --check app tests migrations scripts && uv run pytest -q
+      - run: uv run --inexact ruff check app tests migrations scripts && uv run --inexact ruff format --check app tests migrations scripts && uv run --inexact pytest -q
         working-directory: backend
-      - run: uv run pip-audit
+      - run: uv run --extra voice pip-audit
         working-directory: backend
   frontend:
     runs-on: ubuntu-latest
