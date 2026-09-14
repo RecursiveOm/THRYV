@@ -8,7 +8,15 @@ from sqlalchemy import delete, select, update
 from app.actions import action_view, create_action, expire_actions, owned_device
 from app.api import Provider
 from app.auth import COOKIE_NAME, DB, Account, digest
-from app.database import Action, ChatTurn, Conversation, ProviderCredential, conversation_clock, now
+from app.database import (
+    Action,
+    ChatTurn,
+    Conversation,
+    ProviderCredential,
+    VoiceSetting,
+    conversation_clock,
+    now,
+)
 from app.errors import AppError
 from app.memory import enabled, explicit_memory, retrieve, save
 from app.orchestrator import Orchestrator, research_placeholder
@@ -277,9 +285,13 @@ async def send_message(
         else:
             relevant = await retrieve(db, user.id, memory_query(body.message))
             speech_status = voice.status()
+            voice_setting = await db.get(VoiceSetting, user.id)
             capabilities = {
                 "talk_input": bool(speech_status.get("stt")),
                 "speech_output": bool(speech_status.get("tts")),
+                "wake_available": bool(speech_status.get("wake")),
+                "wake_enabled": bool(voice_setting and voice_setting.wake_enabled),
+                "wake_keyword": "THRYV",
                 "persistent_memory": True,
                 "memory_enabled": await enabled(db, user.id),
                 "public_research": True,

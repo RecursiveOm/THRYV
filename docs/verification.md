@@ -1,5 +1,33 @@
 # V3 verification — September 13–14, 2026
 
+## Voice capability and broad search follow-up — September 14
+
+Scope: the two remaining manual failures only; no V4 or full-suite rerun.
+
+- Voice planning had STT/TTS flags but omitted wake availability and the account's saved
+  wake toggle. Both now reach the trusted capability prompt, which distinguishes Talk,
+  optional Wake word (Beta), disabled capture and unavailable host assets.
+- The failed earbuds search returned dictionary/store results for “best”; every candidate
+  scored zero against the topic, and no alternate discovery ran. Search now prioritizes
+  distinct hosts and reserves a bounded retry for the original topic after irrelevant
+  results or three unreadable sources. Public URL/DNS checks, time/step bounds, ownership
+  and tool-free grounded synthesis remain unchanged.
+- Focused tests: **8 passed**, covering available/off, available/on, unavailable voice,
+  consumer and news discovery retries, domain diversity, failed-source retry/deduplication
+  and official-document hints. Affected V2/V3 backend regression subset: **81 passed**.
+- Affected browser subset: **6 cases verified** across desktop/mobile. The initial mobile
+  cancellation case raced the one-second fixture while scrolling an expanded source list.
+  Cancellation now starts in a fresh conversation; both affected variants passed after
+  adjusting the harness, with no application UI change. Other passing cases were not repeated.
+- Live API acceptance used a disposable database/account and the locally provided DeepSeek
+  key: exact “Can you listen?” described Talk and currently-off Wake word (Beta); exact
+  “search for best earbuds under 2000” completed with **two fetched sources**. No physical
+  microphone test or repeat of prior live demos was performed.
+- Changed Python files passed Ruff lint/format checks; frontend lint and types passed.
+  Diff review preserved public-network
+  restrictions and permission boundaries; configured local secrets were absent from changed
+  files and environment files remain ignored. No frontend implementation/types changed.
+
 ## V3 polish — September 14
 
 Scope: six reported regressions only, on `feat/thryv-v3`; no V4 or repeated live demos.

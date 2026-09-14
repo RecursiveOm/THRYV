@@ -56,6 +56,39 @@ def score(query, source):
     return relevance
 
 
+def search_candidates(query, results, hints):
+    discovered = [
+        r["url"]
+        for r in sorted(results, key=lambda r: score(query, r), reverse=True)
+        if score(query, r)
+    ]
+    interleaved = []
+    for i in range(max(len(discovered), len(hints))):
+        if i < len(discovered):
+            interleaved.append(discovered[i])
+        if i < len(hints):
+            interleaved.append(hints[i])
+    first, repeated, domains = [], [], set()
+    for url in dict.fromkeys(interleaved):
+        host = (urlsplit(url).hostname or "").removeprefix("www.")
+        (repeated if host in domains else first).append(url)
+        domains.add(host)
+    return first + repeated
+
+
+def retry_query(query, message):
+    # Retry the user's original topic before model-added qualifiers. Never invent source URLs.
+    original = re.sub(
+        r"^\s*(?:please\s+)?(?:search(?:\s+(?:the\s+web|web))?(?:\s+for)?|research|look\s+up)\s+",
+        "",
+        message,
+        flags=re.I,
+    ).strip()[:300]
+    if original.casefold() != query.strip().casefold():
+        return original
+    return re.sub(r"^(?:(?:best|top|latest|today's|today|the)\s+)+", "", query, flags=re.I)
+
+
 class Research:
     def __init__(self, app):
         self.app = app
@@ -178,26 +211,31 @@ class Research:
                         )
                     await step("Searching public web…")
                     results = await self.web.search(query)
-                    discovered = [
-                        r["url"]
-                        for r in sorted(results, key=lambda r: score(query, r), reverse=True)
-                        if score(query, r)
-                    ]
-                    # Guessed source URLs must not consume all attempts before actual discovery.
-                    candidates = []
-                    for i in range(max(len(args["source_urls"]), len(discovered))):
-                        if i < len(discovered):
-                            candidates.append(discovered[i])
-                        if i < len(args["source_urls"]):
-                            candidates.append(args["source_urls"][i])
+                    candidates = search_candidates(query, results, args["source_urls"])
                     failures = 0
-                    for url in dict.fromkeys(candidates):
-                        if len(pages) >= 2 or steps >= MAX_STEPS - 1:
+                    for attempt in range(2):
+                        for url in candidates:
+                            if url in visited:
+                                continue
+                            if len(pages) >= 2 or steps >= MAX_STEPS - 1:
+                                break
+                            # Reserve time/steps for alternate discovery after three failed sources.
+                            if attempt == 0 and not pages and failures >= 3:
+                                break
+                            try:
+                                await read(url)
+                            except AppError:
+                                failures += 1
+                        if pages or attempt == 1 or steps >= MAX_STEPS - 2:
                             break
-                        try:
-                            await read(url)
-                        except AppError:
-                            failures += 1
+                        alternative = retry_query(query, message)
+                        if not alternative or alternative.casefold() == query.casefold():
+                            break
+                        if SECRET_SHAPES.search(alternative):
+                            break
+                        await step("Trying alternate public search…")
+                        results = await self.web.search(alternative)
+                        candidates = search_candidates(alternative, results, [])
                     if not pages:
                         raise AppError(
                             "web_sources",

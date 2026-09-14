@@ -20,6 +20,15 @@ test("V3 public research shows progress, grounded sources and cancellation", asy
       .getByRole("link", { name: "https://example.com/", exact: true })
       .last(),
   ).toBeVisible();
+  // Keep cancellation independent of source expansion and mobile scroll animation.
+  await page
+    .getByRole("button", { name: "New conversation", exact: false })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Start a new conversation" }).click();
+  await expect(
+    page.getByRole("heading", { name: "What’s on your mind?" }),
+  ).toBeVisible();
   await send(page, "Research Example");
   await page.getByRole("button", { name: "Cancel research" }).click();
   await expect(page.getByRole("log")).toContainText(
