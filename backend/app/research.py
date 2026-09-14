@@ -5,7 +5,7 @@ import json
 import re
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 from sqlalchemy import select, update
@@ -25,7 +25,7 @@ from app.orchestrator import SYSTEM_PROMPT
 from app.providers.deepseek import DeepSeekProvider
 from app.public_web import PublicWeb
 
-MAX_STEPS = 6
+MAX_STEPS = 8
 TIMEOUT = 75
 
 
@@ -44,7 +44,16 @@ def memory_query(message):
 
 
 def score(query, source):
-    return len(words(query) & words(source["title"] + " " + source["url"]))
+    topic = words(query) - {"search", "research", "best", "top", "latest", "good", "under"}
+    matched = topic & words(
+        source["title"] + " " + source["url"] + " " + source.get("description", "")
+    )
+    relevance = sum(1 if word.isdigit() else 3 for word in matched)
+    # Comparison articles are more useful/readable than generic storefront category pages.
+    host = (urlsplit(source["url"]).hostname or "").removeprefix("www.")
+    if host in {"amazon.in", "amazon.com", "flipkart.com", "myntra.com"}:
+        relevance *= 0.5
+    return relevance
 
 
 class Research:
@@ -169,11 +178,18 @@ class Research:
                         )
                     await step("Searching public web…")
                     results = await self.web.search(query)
-                    candidates = args["source_urls"] + [
+                    discovered = [
                         r["url"]
                         for r in sorted(results, key=lambda r: score(query, r), reverse=True)
                         if score(query, r)
                     ]
+                    # Guessed source URLs must not consume all attempts before actual discovery.
+                    candidates = []
+                    for i in range(max(len(args["source_urls"]), len(discovered))):
+                        if i < len(discovered):
+                            candidates.append(discovered[i])
+                        if i < len(args["source_urls"]):
+                            candidates.append(args["source_urls"][i])
                     failures = 0
                     for url in dict.fromkeys(candidates):
                         if len(pages) >= 2 or steps >= MAX_STEPS - 1:
@@ -318,6 +334,12 @@ async def synthesize(runtime, key, message, memories, pages):
         for i, p in enumerate(pages)
     ]
     instructions = SYSTEM_PROMPT.replace(
+        "You currently have no tools, live web access, device access, "
+        "file access, or persistent memory.",
+        "THRYV's isolated research tools retrieved live public pages for this request. "
+        "You are now synthesizing those retrieved excerpts without tool access. "
+        "Describe retrieval as work THRYV actually performed; do not say no live browsing ran.",
+    ).replace(
         "Never claim to have executed an action, accessed a resource, "
         "or verified live information.",
         "Only the supplied source records have been retrieved; no other action has run.",

@@ -1,5 +1,50 @@
 # V3 verification — September 13–14, 2026
 
+## V3 polish — September 14
+
+Scope: six reported regressions only, on `feat/thryv-v3`; no V4 or repeated live demos.
+GPT-6 Astra was verified from current session metadata.
+
+- Capability prompts lacked runtime voice status. Account planning now receives configured
+  STT/TTS, owned memory enablement and selected Companion online status. Offline device tools
+  do not imply that voice, memory or research is unavailable.
+- Empty relevant-memory retrieval was not clearly distinguished from missing storage.
+  Prompts now distinguish current-chat context, persistent storage and explicit-save consent.
+  Ordinary facts remain unsaved; bare “remember this” still asks for the fact.
+- Search ranked titles/URLs only and tried guessed URLs before discovered results, with just
+  four reading attempts. Ranking now includes descriptions, prioritizes topic terms over generic
+  superlatives, deprioritizes generic storefronts and interleaves discovered URLs with hints.
+  The existing bounded workflow allows six read attempts/eight total steps within 75 seconds.
+  Targeted public-fetch diagnosis found blocked leading results but readable consumer articles;
+  the new controlled broad-query test exercises discovery through actual parsing and synthesis.
+- Research placeholders were inserted as assistant history and could be echoed without a tool
+  call. Research history is now omitted without a placeholder; explicit search/research requests
+  fall back to the existing typed search tool if the model returns text only. Internal status
+  echoes are rejected rather than persisted as final answers.
+- Synthesis inherited V0's denial of live web access. It now accurately credits THRYV's live
+  retrieval while retaining a tool-free synthesis interface and untrusted-source boundaries.
+- The two recorded VS Code attempts ended `launch_unconfirmed`; Code was running but no mapped
+  X11 Code window was visible during read-only inspection. Forwarding into an existing non-X11
+  instance is consistent with this evidence, but the historical cause cannot be proven from the
+  audit. A fixed separate VS Code profile removes that forwarding path. The reported Chrome
+  action retained its 120-second approval deadline: approval expired, not a confirmed dispatch.
+  Expiry wording now distinguishes those states. Deadlines, CONFIRM, replay guards and observed
+  window requirements were not weakened.
+
+Focused gate: **38 backend checks and 5 Companion checks passed**. The full V0–V3 suite ran
+once: **188 backend passed initially**, with one stale test parsing the appended capability
+section as memory JSON. Its assertion was updated without changing runtime behavior and that
+test passed on its focused rerun: **189 backend cases verified overall**. **58 browser and
+32 Companion tests passed**. Ruff lint/format, frontend ESLint/types, frontend production build
+and backend Docker build passed. Two upstream Starlette/AnyIO warnings remain.
+
+No already-passed live demos were rerun. The new VS Code profile has separate editor settings
+and has not received a new human desktop acceptance check. Public source availability and model
+wording still vary; JavaScript/private-page limitations remain. Diff and exact local-secret
+checks were completed before commit/push.
+
+## Initial V3 release gate
+
 Branch: `feat/thryv-v3`, based on pushed V2 commit
 `ec0e841124b0c054fa1571f996182e04b4974be5` (`feat/thryv-v2`).
 Engineering model verified from session metadata: GPT-6 Astra. No subagents.

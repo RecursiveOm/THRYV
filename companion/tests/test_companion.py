@@ -128,6 +128,48 @@ def test_public_url_blocks_injection(monkeypatch, url):
     assert executor.execute("open_url", {"url": url}, time.time() + 30) == {"code": "blocked"}
 
 
+def test_vscode_uses_isolated_profile_and_requires_observed_window(monkeypatch, tmp_path):
+    monkeypatch.setattr(executor.Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(executor.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(executor, "trusted_executable", lambda paths: paths[0])
+    launched = []
+
+    class Windows:
+        def __init__(self):
+            self.calls = 0
+
+        def matching(self, classes):
+            self.calls += 1
+            assert classes == {"code"}
+            return set() if self.calls == 1 else {123}
+
+        def close(self):
+            pass
+
+    class Process:
+        def poll(self):
+            return 0
+
+    def launch(argv, **kwargs):
+        launched.append(argv)
+        assert kwargs["shell"] is False
+        return Process()
+
+    monkeypatch.setattr(executor, "Windows", Windows)
+    monkeypatch.setattr(executor.subprocess, "Popen", launch)
+    assert executor.execute("open_application", {"application": "vscode"}, time.time() + 30) == {
+        "code": "application_opened"
+    }
+    assert "--ozone-platform=x11" in launched[0]
+    assert (
+        "--user-data-dir=" + str(tmp_path / ".local/share/thryv-companion/vscode-profile")
+        in launched[0]
+    )
+    assert len(launched) == 1
+    assert executor.execute("open_application", {"application": "vscode"}, 0) == {"code": "timeout"}
+    assert len(launched) == 1
+
+
 def test_missing_and_unverified_launch(monkeypatch):
     monkeypatch.setattr(executor.platform, "system", lambda: "Linux")
     monkeypatch.setattr(executor, "trusted_executable", lambda paths: None)

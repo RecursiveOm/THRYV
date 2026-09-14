@@ -247,7 +247,13 @@ class PublicWeb:
                 url = public_url(item.findtext("link", ""))
             except AppError:
                 continue
-            results.append({"url": url, "title": item.findtext("title", "")[:200]})
+            results.append(
+                {
+                    "url": url,
+                    "title": item.findtext("title", "")[:200],
+                    "description": item.findtext("description", "")[:600],
+                }
+            )
         if not results:
             raise AppError("web_search", "Public search returned no usable sources.", 422)
         return results

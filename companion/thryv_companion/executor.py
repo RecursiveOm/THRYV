@@ -130,20 +130,20 @@ def execute(tool, arguments, expires_at):
     try:
         windows = Windows()
         before = windows.matching(classes)
-        if arguments["application"] == "chrome":
+        if arguments["application"] in {"chrome", "vscode"}:
             # Existing native Wayland instances ignore X11 flags when forwarding a launch.
             # A dedicated, fixed local profile makes window verification reliable.
-            profile = Path.home() / ".local/share/thryv-companion/chrome-profile"
+            profile_name = (
+                "chrome-profile" if arguments["application"] == "chrome" else "vscode-profile"
+            )
+            profile = Path.home() / ".local/share/thryv-companion" / profile_name
             profile.mkdir(parents=True, exist_ok=True, mode=0o700)
             if profile.is_symlink() or profile.stat().st_uid != os.getuid():
                 return {"code": "blocked"}
             profile.chmod(0o700)
-            flags = (
-                *flags,
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--user-data-dir=" + str(profile),
-            )
+            flags = (*flags, "--user-data-dir=" + str(profile))
+            if arguments["application"] == "chrome":
+                flags = (*flags, "--no-first-run", "--no-default-browser-check")
         # Reaping is bounded; the application remains owned by the desktop user.
         process = subprocess.Popen(
             [executable, *flags],

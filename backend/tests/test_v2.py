@@ -311,7 +311,9 @@ def test_memory_retrieval_is_bounded_and_bare_remember_does_not_invent(v1):
     import json
 
     facts = json.loads(
-        runtime.calls[-1][0]["content"].split("Relevant saved user facts (JSON):\n")[1]
+        runtime.calls[-1][0]["content"]
+        .split("Relevant saved user facts (JSON):\n")[1]
+        .split("\nActual capability status (trusted server data):", 1)[0]
     )
     assert 0 < len(facts) <= 4
     assert sum(len(f["content"]) for f in facts) <= 1600

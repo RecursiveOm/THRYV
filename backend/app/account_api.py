@@ -10,13 +10,14 @@ from app.api import Provider
 from app.auth import COOKIE_NAME, DB, Account, digest
 from app.database import Action, ChatTurn, Conversation, ProviderCredential, conversation_clock, now
 from app.errors import AppError
-from app.memory import explicit_memory, retrieve, save
-from app.orchestrator import Orchestrator
+from app.memory import enabled, explicit_memory, retrieve, save
+from app.orchestrator import Orchestrator, research_placeholder
 from app.providers.base import Completion
 from app.research import TIMEOUT, memory_query
 from app.schemas import ChatRequest, Message, UserText
 from app.tools import REGISTRY, validate_tool
 from app.vault import decrypt_key, encrypt_key
+from app.voice_api import Speech
 
 router = APIRouter()
 
@@ -190,10 +191,12 @@ async def send_message(
     user: Account,
     db: DB,
     runtime: Provider,
+    voice: Speech,
 ):
     item = await owned_conversation(db, user.id, str(conversation_id))
+    selected_device = None
     if body.device_id:
-        await owned_device(db, user.id, str(body.device_id))
+        selected_device = await owned_device(db, user.id, str(body.device_id))
     existing = await db.scalar(
         select(ChatTurn).where(
             ChatTurn.conversation_id == item.id, ChatTurn.request_id == str(body.request_id)
@@ -248,19 +251,15 @@ async def send_message(
     )
     remaining = 32000 - len(body.message)
     for old in turns:
+        # Do not turn private planning placeholders into assistant messages for the model to echo.
+        if old.request_id in research_requests or research_placeholder(old.assistant_text):
+            continue
         size = len(old.user_text) + len(old.assistant_text)
         if size > remaining:
             break
         history[0:0] = [
             Message(role="user", content=old.user_text),
-            Message(
-                role="assistant",
-                content=(
-                    "Public research was requested. Page content is omitted from tool planning."
-                    if old.request_id in research_requests
-                    else old.assistant_text
-                ),
-            ),
+            Message(role="assistant", content=old.assistant_text),
         ]
         remaining -= size
     turn = ChatTurn(
@@ -277,8 +276,21 @@ async def send_message(
             completion = Completion("Saved to your personal memory: " + item_memory.content)
         else:
             relevant = await retrieve(db, user.id, memory_query(body.message))
+            speech_status = voice.status()
+            capabilities = {
+                "talk_input": bool(speech_status.get("stt")),
+                "speech_output": bool(speech_status.get("tts")),
+                "persistent_memory": True,
+                "memory_enabled": await enabled(db, user.id),
+                "public_research": True,
+                "companion_online": bool(
+                    selected_device
+                    and not selected_device.revoked
+                    and selected_device.last_seen >= now() - 15
+                ),
+            }
             completion = await Orchestrator(runtime).plan(
-                ChatRequest(message=body.message, history=history), key, relevant
+                ChatRequest(message=body.message, history=history), key, relevant, capabilities
             )
         truncated = completion.truncated
         if completion.tool_call:

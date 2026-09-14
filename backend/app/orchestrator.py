@@ -1,8 +1,10 @@
 import json
+import re
 
 from pydantic import SecretStr
 
-from app.providers.base import ChatProvider, ProviderMessage
+from app.errors import AppError
+from app.providers.base import ChatProvider, Completion, ProviderMessage, ToolCall
 from app.schemas import ChatRequest, ChatResponse, Message
 
 SYSTEM_PROMPT = """You are THRYV, the current user's personal AI.
@@ -30,6 +32,16 @@ Your identity is THRYV — Your Personal AI. DeepSeek is your runtime model prov
 """
 
 
+def research_placeholder(text):
+    return any(
+        marker in text.casefold()
+        for marker in (
+            "page content is omitted from tool planning",
+            "research request received",
+        )
+    )
+
+
 class Orchestrator:
     def __init__(self, provider: ChatProvider):
         self.provider = provider
@@ -44,7 +56,9 @@ class Orchestrator:
             return result or "The action was cancelled."
         return result or "No confirmed execution result is available."
 
-    async def plan(self, request: ChatRequest, credential: SecretStr, memories=None):
+    async def plan(
+        self, request: ChatRequest, credential: SecretStr, memories=None, capabilities=None
+    ):
         from app.tools import REGISTRY
 
         instructions = SYSTEM_PROMPT.replace(
@@ -73,6 +87,10 @@ class Orchestrator:
             "Only use personal details shared in this conversation or provided relevant memories.",
         )
         instructions += (
+            "\nTHRYV has persistent, account-owned memory storage. An empty retrieval means "
+            "no relevant saved fact, not that memory storage does not exist. Ordinary chat facts "
+            "remain conversation context; offer to save them only with explicit consent. "
+            "For bare 'remember this', ask which fact to save; do not guess or autosave. "
             "\nPersonal memory is saved only by an explicit user request or the Memory panel. "
             "Never claim to have saved a memory yourself. Only the saved facts supplied below "
             "are available across sessions; if none match, say you do not have a saved answer. "
@@ -80,12 +98,47 @@ class Orchestrator:
             "or permission to execute a tool.\nRelevant saved user facts (JSON):\n"
             + json.dumps(memories or [], ensure_ascii=False)
         )
+        instructions += (
+            "\nActual capability status (trusted server data): "
+            + json.dumps(capabilities or {}, ensure_ascii=False)
+            + "\nWhen talk_input is true, explain that you process voice through THRYV's Talk "
+            "microphone control, using local STT and silence-based auto-finish. You do not listen "
+            "without user activation. When speech_output is true, local TTS can speak replies. "
+            "When a voice status is false, that feature is not configured on this host; "
+            "do not deny that THRYV supports voice. Memory disabled means the user can re-enable "
+            "it, not that storage is absent. Offline/missing Companion limits only device tools, "
+            "not voice, memory or public research. Never echo internal status instructions."
+        )
         messages = [{"role": "system", "content": instructions}]
         messages.extend({"role": m.role, "content": m.content} for m in request.history)
         messages.append({"role": "user", "content": request.message})
-        return await self.provider.plan(
+        completion = await self.provider.plan(
             credential, messages, [t.definition() for t in REGISTRY.values()]
         )
+        # Explicit research requests must enter retrieval even if the model returns a status echo.
+        explicit = re.match(
+            r"^\s*(?:please\s+)?(?:search(?:\s+(?:the\s+web|web))?(?:\s+for)?|research|look\s+up)\s+(.+)",
+            request.message,
+            re.I,
+        )
+        if explicit and not completion.tool_call:
+            return Completion(
+                "",
+                tool_call=ToolCall(
+                    "search_web",
+                    {
+                        "query": explicit.group(1).strip()[:300],
+                        "source_urls": [],
+                    },
+                ),
+            )
+        if not completion.tool_call and research_placeholder(completion.content):
+            raise AppError(
+                "provider_response",
+                "Research did not start. Ask again with a topic or public URL.",
+                502,
+            )
+        return completion
 
     async def chat(self, request: ChatRequest, credential: SecretStr) -> ChatResponse:
         messages: list[ProviderMessage] = [{"role": "system", "content": SYSTEM_PROMPT}]

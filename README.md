@@ -143,7 +143,7 @@ For a remote backend use its HTTPS origin. HTTP is accepted only on loopback. Co
 | `search_web`, `open_webpage`, `inspect_webpage`, `follow_web_link`, `back_webpage` | SAFE | Isolated public research context owned by this conversation; bounded GET-only requests |
 | Anything else | BLOCKED | Rejected; never dispatched |
 
-Chrome uses a dedicated local profile at `~/.local/share/thryv-companion/chrome-profile` and opens `about:blank` or the confirmed public URL. This permits X11/XWayland window verification even when your usual Chrome instance runs on Wayland. It does not use your existing signed-in browser profile. VS Code uses a new window; if it cannot be verified, THRYV reports an unconfirmed result. Windows/macOS application launching is not implemented.
+Chrome uses a dedicated local profile at `~/.local/share/thryv-companion/chrome-profile` and opens `about:blank` or the confirmed public URL. This permits X11/XWayland window verification even when your usual Chrome instance runs on Wayland. It does not use your existing signed-in browser profile. VS Code opens a new window with separate settings in `~/.local/share/thryv-companion/vscode-profile`, preventing forwarding into an existing native Wayland instance. If a new window cannot be verified, THRYV reports an unconfirmed result. Windows/macOS application launching is not implemented.
 
 ## State, privacy, and authentication
 

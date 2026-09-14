@@ -101,7 +101,12 @@ async def expire_actions(db, owner):
             else (
                 RESULTS["timeout"]
                 if action.status == "running"
-                else ("This action expired before dispatch. No action was executed.")
+                else (
+                    "Approval expired before it was granted. No action was executed."
+                    if action.status == "pending_confirmation"
+                    else "Companion did not collect this action before its deadline. "
+                    "No action was executed."
+                )
             )
         )
         result = await db.execute(
