@@ -4,6 +4,14 @@
 
 THRYV is a personal AI workspace for thinking, writing, learning, and taking small, authorized actions on your own computer. Creator attribution never implies the current user's identity. Engineering uses **GPT-6 Astra only**; DeepSeek is the runtime provider.
 
+## V3 — Public browser and live research
+
+V3 adds isolated public web search, page reading, link navigation, source-grounded answers,
+visible progress and cancellation. Ask “Research the latest official FastAPI deployment guidance.”
+Research needs no Companion. “Open the official FastAPI website on my computer” uses your
+selected Companion and requires confirmation. See [V3 architecture and limits](docs/v3.md)
+and [current verification](docs/verification.md).
+
 ## V2 — Voice and personal memory
 
 V2 extends the working V1 accounts, owned chats, encrypted BYOK, and scoped Linux Companion.
@@ -11,9 +19,9 @@ You can talk to THRYV, hear replies, and explicitly save useful preferences, fac
 and decisions across sessions. Text and speech share one warm, conversational personality;
 technical answers, confirmations, errors, and device results remain clear and truthful.
 
-See [V2 architecture and setup](docs/v2.md) and [verification](docs/verification.md) for
+See [V2 architecture and setup](docs/v2.md) and [V2 verification](docs/verification-v2.md) for
 acceptance evidence and limits. The historical [V1 report](docs/verification-v1.md) retains
-the real DeepSeek → confirmed Chrome launch gate. V3 browser/research work starts only after V2 is committed and pushed.
+the real DeepSeek → confirmed Chrome launch gate. V2 was committed and pushed before V3 began.
 
 ```mermaid
 flowchart TD
@@ -33,6 +41,10 @@ flowchart TD
     Permission -->|BLOCKED| Reject[Reject safely]
     Permission -->|CONFIRM| Approval[Same-user, same-session approval]
     Permission -->|SAFE| Queue[Durable action queue]
+    Permission -->|Public SAFE| Research[Bounded public HTTP research]
+    Research --> Sources[Retrieved text and source metadata]
+    Sources --> Synthesis[DeepSeek synthesis without tools]
+    Synthesis --> DB
     Approval --> Queue
     Companion[Outbound authenticated Companion] --> Queue
     Companion --> Handler[Allowlisted local handler]
@@ -127,9 +139,11 @@ For a remote backend use its HTTPS origin. HTTP is accepted only on loopback. Co
 | --- | --- | --- |
 | `open_application` | CONFIRM | `application` must be `chrome` or `vscode`; fixed executable/arguments; no shell |
 | `get_system_info` | SAFE | Only OS and CPU architecture enums; no hostname, files, processes, or environment |
+| `open_url` | CONFIRM | Validated public HTTP(S) URL; dedicated Chrome profile; observed window, not verified page loading |
+| `search_web`, `open_webpage`, `inspect_webpage`, `follow_web_link`, `back_webpage` | SAFE | Isolated public research context owned by this conversation; bounded GET-only requests |
 | Anything else | BLOCKED | Rejected; never dispatched |
 
-Chrome uses a dedicated local profile at `~/.local/share/thryv-companion/chrome-profile` and opens `about:blank`. This permits X11/XWayland window verification even when your usual Chrome instance runs on Wayland. It does not use your existing signed-in browser profile. VS Code uses a new window; if it cannot be verified, THRYV reports an unconfirmed result. Windows/macOS application launching is not implemented.
+Chrome uses a dedicated local profile at `~/.local/share/thryv-companion/chrome-profile` and opens `about:blank` or the confirmed public URL. This permits X11/XWayland window verification even when your usual Chrome instance runs on Wayland. It does not use your existing signed-in browser profile. VS Code uses a new window; if it cannot be verified, THRYV reports an unconfirmed result. Windows/macOS application launching is not implemented.
 
 ## State, privacy, and authentication
 
@@ -200,4 +214,4 @@ npx playwright install chromium
 npm test
 ```
 
-[Deployment preparation](docs/deployment.md) describes the persistent volume, migrations, HTTPS/site layout, backups, and limits. Public deployment still requires an explicit user instruction. V2 has no custom wake words, general browser/research automation, email, scheduling, or unrestricted terminal.
+[Deployment preparation](docs/deployment.md) describes the persistent volume, migrations, HTTPS/site layout, backups, and limits. Public deployment still requires an explicit user instruction. No custom wake words, email, scheduling, unrestricted terminal or V4 features are included.

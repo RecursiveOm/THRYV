@@ -212,13 +212,22 @@ export type Device = {
 };
 export type Action = {
   id: string;
-  device_id: string;
+  device_id: string | null;
   conversation_id: string | null;
   tool: string;
-  arguments: { application?: string };
+  arguments: { application?: string; url?: string; query?: string };
   permission: string;
   status: string;
   expires_at: number;
   created_at: number;
   result: string | null;
+  details?: {
+    progress?: string;
+    sources?: {
+      title: string;
+      url: string;
+      retrieved_at: number;
+      content: string;
+    }[];
+  };
 };

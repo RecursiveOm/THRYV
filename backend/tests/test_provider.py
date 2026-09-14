@@ -192,7 +192,7 @@ async def test_structured_request_discards_untrusted_success_text():
     def handler(request):
         body = json.loads(request.content)
         assert body["tool_choice"] == "auto"
-        assert len(body["tools"]) == 2
+        assert {tool["function"]["name"] for tool in body["tools"]} == set(REGISTRY)
         assert body["thinking"] == {"type": "disabled"}
         return httpx.Response(
             200,

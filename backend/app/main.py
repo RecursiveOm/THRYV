@@ -17,6 +17,7 @@ from app.device_api import router as device_router
 from app.errors import AppError
 from app.memory_api import router as memory_router
 from app.middleware import RequestBoundary
+from app.research import Research
 from app.speech import LocalSpeech
 from app.voice_api import router as voice_router
 
@@ -30,7 +31,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         logging.basicConfig(level=settings.log_level, format="%(levelname)s %(name)s %(message)s")
         # HTTP libraries' debug logs can contain request headers or provider details.
-        for name in ("httpx", "httpcore", "uvicorn.access", "sqlalchemy", "aiosqlite"):
+        for name in (
+            "httpx",
+            "httpcore",
+            "uvicorn.access",
+            "sqlalchemy",
+            "aiosqlite",
+            "aiohttp.client",
+        ):
             logging.getLogger(name).setLevel(logging.WARNING)
             logging.getLogger(name).disabled = True
         if settings.app_env == "production":
@@ -39,12 +47,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cipher(settings)
         logger.info("THRYV starting")
         yield
+        await app.state.research.close()
         await app.state.engine.dispose()
         logger.info("THRYV stopped")
 
     app = FastAPI(
         title="THRYV",
-        version="2.0.0",
+        version="3.0.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.app_env == "development" else None,
         redoc_url=None,
@@ -53,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.speech = LocalSpeech(settings)
     configure_database(app, settings.database_url.get_secret_value())
+    app.state.research = Research(app)
     install_auth(app, settings)
 
     @app.exception_handler(AppError)

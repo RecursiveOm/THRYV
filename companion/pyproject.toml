@@ -1,6 +1,6 @@
 [project]
 name = "thryv-companion"
-version = "1.0.0"
+version = "1.1.0"
 description = "Scoped outbound desktop companion for THRYV"
 requires-python = ">=3.12"
 dependencies = ["httpx>=0.28,<1", "python-xlib>=0.33,<1"]

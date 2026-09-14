@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -15,6 +16,7 @@ from app.main import create_app
 from app.providers.deepseek import DeepSeekProvider
 from app.voice_api import speech
 from tests.test_v2 import FakeSpeech
+from tests.test_v3 import Web
 
 _directory = tempfile.TemporaryDirectory(prefix="thryv-browser-tests-")
 _url = f"sqlite+aiosqlite:///{_directory.name}/test.db"
@@ -40,6 +42,52 @@ def mock_deepseek(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"id": "deepseek-flash"}]})
     messages = json.loads(request.content)["messages"]
     last = messages[-1]["content"]
+    if last == "Research Example":
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": [
+                                {
+                                    "type": "function",
+                                    "function": {
+                                        "name": "search_web",
+                                        "arguments": json.dumps(
+                                            {"query": "Example research", "source_urls": []}
+                                        ),
+                                    },
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
+    if last.startswith('{"request":'):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": json.dumps(
+                                {
+                                    "answer": "The retrieved source documents a useful fact.",
+                                    "source_ids": [1],
+                                }
+                            ),
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            },
+        )
     if last in ("Open Chrome on my laptop.", "Get system information from my paired device"):
         tool = "open_application" if last.startswith("Open") else "get_system_info"
         args = '{"application":"chrome"}' if tool == "open_application" else "{}"
@@ -101,3 +149,14 @@ async def test_provider():
 app.dependency_overrides[provider] = test_provider
 
 app.dependency_overrides[speech] = lambda: FakeSpeech()
+app.state.research.web = Web()
+app.state.research.web.delay = 1
+
+
+@asynccontextmanager
+async def research_provider(settings):
+    async for runtime in test_provider():
+        yield runtime
+
+
+app.state.research.provider_context = research_provider

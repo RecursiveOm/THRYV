@@ -1,10 +1,12 @@
+import ipaddress
 import os
 import platform
 import subprocess
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
-# Fixed absolute paths and arguments. No model text reaches argv or the environment.
+# Fixed executables/flags. The only variable launch argument is a validated public URL.
 APPLICATIONS = {
     "chrome": (
         ("/opt/google/chrome/google-chrome",),
@@ -74,8 +76,42 @@ def execute(tool, arguments, expires_at):
             "platform": system,
             "architecture": machine if machine in ("x86_64", "aarch64", "arm64") else "unknown",
         }
+    url = None
+    if tool == "open_url":
+        if not isinstance(arguments, dict) or set(arguments) != {"url"}:
+            return {"code": "blocked"}
+        url = arguments["url"]
+        try:
+            if (
+                not isinstance(url, str)
+                or len(url) > 2048
+                or any(ord(c) <= 32 for c in url)
+                or "\\" in url
+            ):
+                raise ValueError
+            parsed = urlsplit(url)
+            host = (parsed.hostname or "").encode("idna").decode("ascii")
+            if (
+                parsed.scheme not in {"https", "http"}
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.port not in {None, 80, 443}
+                or host.endswith((".local", ".localhost", ".internal", ".test", "."))
+            ):
+                raise ValueError
+            try:
+                address = ipaddress.ip_address(host)
+            except ValueError:
+                if "." not in host:
+                    raise ValueError from None
+            else:
+                if not address.is_global or address.is_multicast or address.is_reserved:
+                    raise ValueError
+        except (ValueError, UnicodeError):
+            return {"code": "blocked"}
+        arguments = {"application": "chrome"}
     if (
-        tool != "open_application"
+        tool not in {"open_application", "open_url"}
         or not isinstance(arguments, dict)
         or set(arguments) != {"application"}
         or not isinstance(arguments["application"], str)
@@ -85,6 +121,8 @@ def execute(tool, arguments, expires_at):
     if platform.system() != "Linux":
         return {"code": "unsupported_platform"}
     candidates, flags, classes = APPLICATIONS[arguments["application"]]
+    if url:
+        flags = tuple(url if flag == "about:blank" else flag for flag in flags)
     executable = trusted_executable(candidates)
     if not executable:
         return {"code": "application_missing"}
@@ -120,7 +158,7 @@ def execute(tool, arguments, expires_at):
         while time.time() < deadline:
             if windows.matching(classes) - before:
                 process.poll()
-                return {"code": "application_opened"}
+                return {"code": "url_opened" if url else "application_opened"}
             if process.poll() not in (None, 0):
                 return {"code": "launch_failed"}
             time.sleep(0.2)

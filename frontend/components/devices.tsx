@@ -148,6 +148,19 @@ export function RecentActions({
       setBusy("");
     }
   }
+  async function cancel(id: string) {
+    if (busy) return;
+    setBusy(id);
+    setError("");
+    try {
+      await accountRequest(`/api/actions/${id}/cancel`, "POST");
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Cancellation failed.");
+    } finally {
+      setBusy("");
+    }
+  }
   return (
     <section className="recent-actions" aria-label="Recent Actions">
       <h2>Recent Actions</h2>
@@ -157,17 +170,51 @@ export function RecentActions({
           <strong>
             {a.tool === "open_application"
               ? `Open ${a.arguments.application === "chrome" ? "Chrome" : "VS Code"}`
-              : "Read basic system information"}
+              : a.tool === "open_url"
+                ? "Open website on your computer"
+                : a.device_id === null
+                  ? "Public web research"
+                  : "Read basic system information"}
           </strong>
           <p>
-            On{" "}
-            {devices.find((d) => d.id === a.device_id)?.name || "paired device"}
+            {a.device_id === null
+              ? "Isolated public research context"
+              : `On ${devices.find((d) => d.id === a.device_id)?.name || "paired device"}`}
           </p>
+          {a.arguments.url && <p>{a.arguments.url}</p>}
+          {a.arguments.query && <p>{a.arguments.query}</p>}
           <small>
             {a.permission} · {a.status.replaceAll("_", " ")} ·{" "}
             {new Date(a.created_at * 1000).toLocaleString()}
           </small>
           {a.result && <p>{a.result}</p>}
+          {a.device_id === null && ["queued", "running"].includes(a.status) && (
+            <button
+              className="text-button"
+              disabled={Boolean(busy)}
+              onClick={() => cancel(a.id)}
+            >
+              Cancel research
+            </button>
+          )}
+          {a.details?.sources?.map((source) => (
+            <details key={source.url}>
+              <summary>{source.title}</summary>
+              <a
+                href={source.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                referrerPolicy="no-referrer"
+              >
+                {source.url}
+              </a>
+              <small>
+                Retrieved{" "}
+                {new Date(source.retrieved_at * 1000).toLocaleString()}
+              </small>
+              <p>{source.content}</p>
+            </details>
+          ))}
           {a.status === "pending_confirmation" && (
             <div>
               <p>

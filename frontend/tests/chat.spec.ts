@@ -1,6 +1,70 @@
 import { test, expect, type Page } from "@playwright/test";
 import { boundedHistory } from "../lib/api";
 
+test("V3 public research shows progress, grounded sources and cancellation", async ({
+  page,
+}) => {
+  await connect(page);
+  await send(page, "Research Example");
+  await expect(
+    page.getByRole("button", { name: "Cancel research" }),
+  ).toBeVisible();
+  await expect(page.getByRole("log")).toContainText(
+    "The retrieved source documents",
+    { timeout: 15000 },
+  );
+  await expect(page.getByRole("log")).toContainText("https://example.com/");
+  await page.getByText("Example research", { exact: true }).last().click();
+  await expect(
+    page
+      .getByRole("link", { name: "https://example.com/", exact: true })
+      .last(),
+  ).toBeVisible();
+  await send(page, "Research Example");
+  await page.getByRole("button", { name: "Cancel research" }).click();
+  await expect(page.getByRole("log")).toContainText(
+    "Public research was cancelled",
+  );
+});
+
+test("V3 Talk uses the same research action and speaks only the final answer", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["microphone"]);
+  await syntheticUtterances(page, 1);
+  await page.route("**/api/voice/transcribe", (route) =>
+    route.fulfill({ json: { text: "Research Example" } }),
+  );
+  let submissions = 0;
+  const spoken: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/messages") && request.method() === "POST")
+      submissions++;
+    if (request.url().endsWith("/api/voice/speak"))
+      spoken.push(request.postDataJSON().text);
+  });
+  await connect(page);
+  await page.getByRole("button", { name: "Talk to THRYV" }).click();
+  await expect(page.getByRole("log")).toContainText(
+    "The retrieved source documents",
+    { timeout: 15000 },
+  );
+  await expect
+    .poll(() =>
+      spoken.some((text) => text.includes("retrieved source documents")),
+    )
+    .toBeTruthy();
+  expect(submissions).toBe(1);
+  expect(
+    spoken.some(
+      (text) =>
+        text.includes("Starting public research") ||
+        text.includes("Searching public web"),
+    ),
+  ).toBeFalsy();
+});
+
 async function register(page: Page) {
   await page.goto("/");
   await page

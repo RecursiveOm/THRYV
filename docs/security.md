@@ -1,6 +1,6 @@
-# THRYV V2 security design and review
+# THRYV V3 security design and review
 
-The inherited V1 foundation separates account identity, provider credentials, and device credentials. The server is trusted to hold account data and decrypt saved DeepSeek keys. Companion is trusted to execute the two implemented handlers and report honestly. A compromised backend can authorize those handlers; a compromised desktop user can already run arbitrary programs outside Companion. Neither is a sandbox against its own administrator.
+The inherited V1 foundation separates account identity, provider credentials, and device credentials. The server is trusted to hold account data and decrypt saved DeepSeek keys. Companion is trusted to execute its allowlisted handlers and report honestly. A compromised backend can authorize those handlers; a compromised desktop user can already run arbitrary programs outside Companion. Neither is a sandbox against its own administrator.
 
 ## Identity and ownership
 
@@ -34,7 +34,7 @@ The model supplies a tool name and structured arguments, never executable author
 - `get_system_info`: SAFE; no arguments, only bounded OS/architecture enums returned.
 - Other capabilities: BLOCKED. Extra permission fields, paths, URLs, and shell strings are rejected.
 
-The selected device is supplied by the authenticated UI request and independently ownership-checked, never chosen through model arguments. Application requests require a currently online non-revoked device. Confirmation is bound to the initiating session digest, user, action ID, device, and immutable validated arguments. It expires after 120 seconds. Atomic state transitions consume allow/deny once. A different login session for the same account cannot approve it; the UI explains this error. A SAFE tool still requires authenticated ownership and a live paired device.
+The selected device is supplied by the authenticated UI request and independently ownership-checked, never chosen through model arguments. Application requests require a currently online non-revoked device. Confirmation is bound to the initiating session digest, user, action ID, device, and immutable validated arguments. It expires after 120 seconds. Atomic state transitions consume allow/deny once. A different login session for the same account cannot approve it; the UI explains this error. A SAFE device tool still requires authenticated ownership and a live paired device; public research requires the owned conversation instead.
 
 Action records are durable with a unique user/request ID. Device row locks serialize action creation and result acceptance against revocation. Conditional claims dispatch queued actions once into running status; no automatic redispatch occurs. Companion records action IDs in a durable SQLite ledger **before** executing and rechecks server authorization immediately before the side effect. Result delivery retries only sanitized results, never the launch. Duplicate claims, approvals, and results are rejected. A crash after recording but before execution produces uncertainty rather than replay. Restoring old database/Companion backups can weaken replay history; stop Companions and revoke/re-pair devices after rollback.
 
@@ -42,9 +42,9 @@ Revocation cancels pending/queued/running records and prevents subsequent authen
 
 ## Local execution
 
-No `run_command`, shell grammar, user-supplied executable, arbitrary argument list, URL, or file path is accepted. The executor uses `subprocess.Popen` with `shell=False`, trusted absolute installed paths, fixed flags, closed input/output streams, and no provider credentials. Executable and parent ownership/modes must be root-owned and not group/world writable. V1 supports Linux applications only and runs without elevation.
+No `run_command`, shell grammar, user-supplied executable, arbitrary argument list or file path is accepted. V3 permits one independently validated public HTTP(S) URL as a Chrome argument after confirmation. The executor uses `subprocess.Popen` with `shell=False`, trusted absolute installed paths, fixed flags, closed input/output streams, and no provider credentials. Executable and parent ownership/modes must be root-owned and not group/world writable. Local launching supports Linux only and runs without elevation.
 
-Chrome opens a fixed blank page using a dedicated 0700 profile and X11 flags. This avoids native Wayland process forwarding that prevents verifying a new window. It never automates browser pages or reads browser history. Xlib inspects only window IDs/classes and mapped state, not titles, screenshots, content, or keystrokes. A new matching mapped window must be observed before `application_opened`. A process launch alone is not success. This observational check can be spoofed by another process with access to the same display; it is not a cryptographic desktop attestation. VS Code forwarding into an unverifiable native Wayland window may produce `launch_unconfirmed`.
+Chrome opens a blank page or confirmed public URL using a dedicated 0700 profile and X11 flags. This avoids native Wayland process forwarding that prevents verifying a new window. It never reads browser history. Xlib inspects only window IDs/classes and mapped state, not titles, screenshots, content, or keystrokes. A new matching mapped window must be observed before `application_opened` or `url_opened`; the latter explicitly does not verify page loading or redirects. A process launch alone is not success. This observational check can be spoofed by another process with access to the same display; it is not a cryptographic desktop attestation. VS Code forwarding into an unverifiable native Wayland window may produce `launch_unconfirmed`.
 
 ## Auditing, limits, and operations
 
@@ -98,8 +98,8 @@ Treat local model files and host administrators as trusted. Default container bu
 dependencies; the opt-in voice image includes them but never includes model files or credentials.
 
 Personality instructions allow context-sensitive warmth and light banter. Trusted confirmation,
-permission, error and observed-result messages are not rewritten by the model. No browser/research,
-new desktop tools or unrestricted execution has been introduced.
+permission, error and observed-result messages are not rewritten by the model. V2 introduced no
+browser tools; the V3 additions below preserve these boundaries.
 
 Wake listening is off by default and stores only an owned boolean preference. No custom keyword
 is accepted. `/api/voice/wake` requires that opt-in and configured local acoustic assets, and
@@ -115,3 +115,35 @@ One browser-origin Web Lock is held through capture, processing and playback, pr
 tabs from duplicating an utterance. Generation guards prevent VAD/manual-Finish/cancel races.
 Wake mode pauses while processing and speaking and does not listen when the tab is hidden.
 The per-account On/Off preference persists; the browser still enforces microphone permission.
+
+## V3 public research review
+
+Public research has no device ID and cannot enter the Companion poll/authorize/result path.
+It still requires an authenticated owner, owned conversation, saved provider consent and
+durable Action ID. The direct device-action endpoint rejects server research tools.
+Owned cancellation uses a conditional status change; stale workers cannot overwrite it.
+Session validity and provider connection are checked before each step. Shutdown cancels
+tasks; process-local bounds require the documented single-worker deployment.
+
+Public GET requests use a separate aiohttp client with no cookies, authentication, proxy
+environment, subresources or JavaScript. Every URL/redirect is checked and DNS answers
+are validated and pinned into the connector. Private, loopback and link-local addresses
+are blocked, including mixed public/private DNS answers. Bodies, redirects, links, excerpts,
+steps and elapsed time are bounded. This protects the server fetcher against SSRF; ordinary
+desktop Chrome navigation is not subject to that resolver and may redirect normally.
+THRYV does not read that desktop context, and uses its own profile rather than personal cookies.
+
+Web text is untrusted. Tool planning happens before retrieval. Synthesis has no tools and
+receives no provider credential values, session cookies or Companion credentials in its
+messages. Research-derived assistant history is removed from later planning context.
+Only fetched source IDs may be cited; titles are escaped and citation URLs come from
+retrieved metadata. Model output cannot add arbitrary citation links. These structural
+boundaries prevent page-induced tool execution; they do not prove semantic correctness of
+every generated claim. Controlled malicious HTML, forged source IDs, private redirects,
+DNS pinning, ownership, cancellation, timeout and voice integration have focused tests.
+
+Captured excerpts and metadata persist in owned conversation/action records, not personal
+memory. Audit records survive chat deletion, including retrieved excerpts. Obvious secrets
+in URLs/searches are rejected, but do not enter unlabelled secrets into chat or public URLs.
+No external penetration test, private authenticated browsing, form side effects, arbitrary
+JavaScript, uploads, paid browser service or public deployment is claimed.

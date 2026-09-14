@@ -65,7 +65,8 @@ def test_injection_never_reaches_process(monkeypatch, tool, args):
     assert executor.execute(tool, args, time.time() + 30) == {"code": "blocked"}
 
 
-def test_verified_launch_uses_fixed_argv(monkeypatch, tmp_path):
+@pytest.mark.parametrize("url", [None, "https://fastapi.tiangolo.com/"])
+def test_verified_launch_uses_fixed_argv(monkeypatch, tmp_path, url):
     monkeypatch.setattr(executor.Path, "home", lambda: tmp_path)
     seen = []
 
@@ -92,16 +93,39 @@ def test_verified_launch_uses_fixed_argv(monkeypatch, tmp_path):
     monkeypatch.setattr(executor, "trusted_executable", lambda paths: paths[0])
     monkeypatch.setattr(executor.platform, "system", lambda: "Linux")
     monkeypatch.setattr(executor.subprocess, "Popen", launch)
-    assert executor.execute("open_application", {"application": "chrome"}, time.time() + 30) == {
-        "code": "application_opened"
-    }
+    assert executor.execute(
+        "open_url" if url else "open_application",
+        {"url": url} if url else {"application": "chrome"},
+        time.time() + 30,
+    ) == {"code": "url_opened" if url else "application_opened"}
     assert seen[0][0][:4] == [
         "/opt/google/chrome/google-chrome",
         "--new-window",
-        "about:blank",
+        url or "about:blank",
         "--ozone-platform=x11",
     ]
     assert seen[0][1]["shell"] is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://[::1]",
+        "https://a:b@example.com",
+        "--no-sandbox",
+        "https://example.com:22",
+        "https://example.com\n--no-sandbox",
+    ],
+)
+def test_public_url_blocks_injection(monkeypatch, url):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Unsafe URL reached process launch")
+
+    monkeypatch.setattr(executor.subprocess, "Popen", forbidden)
+    assert executor.execute("open_url", {"url": url}, time.time() + 30) == {"code": "blocked"}
 
 
 def test_missing_and_unverified_launch(monkeypatch):

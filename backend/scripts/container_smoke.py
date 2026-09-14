@@ -1,4 +1,4 @@
-"""Verify the locally built V2 image using a disposable private volume and secret."""
+"""Verify the locally built V3 image using a disposable private volume and secret."""
 
 import secrets
 import subprocess
@@ -17,7 +17,7 @@ def run(arguments):
 
 
 def main():
-    name = "thryv-v2-check-" + secrets.token_hex(4)
+    name = "thryv-v3-check-" + secrets.token_hex(4)
     volume = name + "-data"
     stage = "temporary configuration"
     try:
@@ -36,10 +36,10 @@ def main():
                 f"type=volume,source={volume},target=/data",
             ]
             stage = "non-root volume migration"
-            run(["run", "--rm", *common, "thryv-backend:v2", "alembic", "upgrade", "head"])
+            run(["run", "--rm", *common, "thryv-backend:v3", "alembic", "upgrade", "head"])
             print("PASS " + stage)
             stage = "production health, data permissions, schema and artifact exclusion"
-            run(["run", "-d", "--name", name, *common, "thryv-backend:v2"])
+            run(["run", "-d", "--name", name, *common, "thryv-backend:v3"])
             script = """
 import os, pathlib, sqlite3, urllib.request, urllib.error
 assert urllib.request.urlopen('http://127.0.0.1:8000/health').status == 200
@@ -49,7 +49,7 @@ assert not pathlib.Path('/app/tests').exists()
 assert pathlib.Path('/data').stat().st_mode & 0o777 == 0o700
 assert pathlib.Path('/data/thryv.db').stat().st_mode & 0o077 == 0
 with sqlite3.connect('/data/thryv.db') as db:
-    assert db.execute('select version_num from alembic_version').fetchone()[0] == '6c9c73ac0555'
+    assert db.execute('select version_num from alembic_version').fetchone()[0] == '37d6a04b213a'
 try:
     urllib.request.urlopen('http://127.0.0.1:8000/docs')
 except urllib.error.HTTPError as error:

@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from fastapi import APIRouter, Request
@@ -12,8 +13,9 @@ from app.errors import AppError
 from app.memory import explicit_memory, retrieve, save
 from app.orchestrator import Orchestrator
 from app.providers.base import Completion
+from app.research import TIMEOUT, memory_query
 from app.schemas import ChatRequest, Message, UserText
-from app.tools import REGISTRY
+from app.tools import REGISTRY, validate_tool
 from app.vault import decrypt_key, encrypt_key
 
 router = APIRouter()
@@ -212,7 +214,7 @@ async def send_message(
     if stored_key is None:
         raise AppError("missing_key", "Connect your DeepSeek key in provider settings.", 409)
     key = decrypt_key(request.app.state.settings, user.id, stored_key.ciphertext)
-    lease = now() + int(request.app.state.settings.provider_timeout_seconds) + 30
+    lease = now() + int(request.app.state.settings.provider_timeout_seconds) + TIMEOUT + 30
     claimed = await db.execute(
         update(Conversation)
         .where(Conversation.id == item.id, Conversation.busy_until <= now())
@@ -233,6 +235,17 @@ async def send_message(
         ).all()
     )
     history = []
+    research_requests = set(
+        (
+            await db.scalars(
+                select(Action.request_id).where(
+                    Action.conversation_id == item.id,
+                    Action.user_id == user.id,
+                    Action.device_id.is_(None),
+                )
+            )
+        ).all()
+    )
     remaining = 32000 - len(body.message)
     for old in turns:
         size = len(old.user_text) + len(old.assistant_text)
@@ -240,7 +253,14 @@ async def send_message(
             break
         history[0:0] = [
             Message(role="user", content=old.user_text),
-            Message(role="assistant", content=old.assistant_text),
+            Message(
+                role="assistant",
+                content=(
+                    "Public research was requested. Page content is omitted from tool planning."
+                    if old.request_id in research_requests
+                    else old.assistant_text
+                ),
+            ),
         ]
         remaining -= size
     turn = ChatTurn(
@@ -249,19 +269,44 @@ async def send_message(
     db.add(turn)
     await db.commit()
     action = None
+    research_action = False
     truncated = False
     try:
         if remembered:
             item_memory = await save(db, user.id, *remembered)
             completion = Completion("Saved to your personal memory: " + item_memory.content)
         else:
-            relevant = await retrieve(db, user.id, body.message)
+            relevant = await retrieve(db, user.id, memory_query(body.message))
             completion = await Orchestrator(runtime).plan(
                 ChatRequest(message=body.message, history=history), key, relevant
             )
         truncated = completion.truncated
         if completion.tool_call:
-            if not body.device_id:
+            requested = REGISTRY.get(completion.tool_call.name)
+            if requested and requested.target == "public_web":
+                if len(request.app.state.research.tasks) >= 8:
+                    raise AppError("server_busy", "Research is busy. Try again shortly.", 429)
+                tool, args = validate_tool(
+                    completion.tool_call.name, completion.tool_call.arguments
+                )
+                action = Action(
+                    user_id=user.id,
+                    session_hash=digest(request.cookies[COOKIE_NAME]),
+                    device_id=None,
+                    conversation_id=item.id,
+                    request_id=str(body.request_id),
+                    tool=tool.name,
+                    arguments=json.dumps(args),
+                    permission=tool.permission,
+                    status="queued",
+                    expires_at=now() + TIMEOUT + 5,
+                    result_text="Starting public research…",
+                )
+                db.add(action)
+                await db.flush()
+                turn.assistant_text = action.result_text
+                research_action = True
+            elif not body.device_id:
                 turn.assistant_text = (
                     "Select a paired device in the device picker, then ask "
                     "again. No action was executed."
@@ -294,11 +339,13 @@ async def send_message(
         await db.execute(
             update(Conversation)
             .where(Conversation.id == item.id, Conversation.busy_until == lease)
-            .values(busy_until=0, updated_at=conversation_clock())
+            .values(busy_until=lease if research_action else 0, updated_at=conversation_clock())
         )
         if item.title == "New conversation":
             item.title = body.message[:80]
         await db.commit()
+    if research_action:
+        request.app.state.research.start(action.id, key, lease)
     return {
         "message": {"role": "assistant", "content": turn.assistant_text},
         "truncated": truncated,

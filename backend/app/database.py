@@ -54,6 +54,7 @@ class Conversation(Base):
     created_at: Mapped[int] = mapped_column(Integer, default=now)
     updated_at: Mapped[int] = mapped_column(BigInteger, default=conversation_clock, index=True)
     busy_until: Mapped[int] = mapped_column(Integer, default=0)
+    browser_state: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
 
 
 class ChatTurn(Base):
@@ -101,7 +102,9 @@ class Action(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("user.id", ondelete="CASCADE"), index=True
     )
-    device_id: Mapped[str] = mapped_column(ForeignKey("device.id"), index=True)
+    device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("device.id"), index=True, nullable=True
+    )
     conversation_id: Mapped[str | None] = mapped_column(
         ForeignKey("conversation.id", ondelete="SET NULL"), nullable=True
     )
@@ -115,6 +118,7 @@ class Action(Base):
     expires_at: Mapped[int] = mapped_column(Integer)
     result_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
     result_text: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    details: Mapped[str] = mapped_column(Text, default="{}", server_default="{}")
 
 
 def configure_database(app, url: str):

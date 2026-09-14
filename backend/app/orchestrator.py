@@ -52,7 +52,12 @@ class Orchestrator:
             "access, file access, or persistent memory.",
             "You have only the structured tools listed in this request, "
             "for the explicitly selected "
-            "paired device. You have no browser research, file access, "
+            "paired device, plus isolated public web research tools that need no device. "
+            "Use search_web for current/live research and open_webpage for reading a known URL. "
+            "search_web performs the entire multi-source comparison internally: request it once "
+            "with one combined query, never separate calls for individual products or sources. "
+            "Use open_url only when asked to open a site on the user's computer. "
+            "You have no private browser, file access, "
             "or unrestricted device access. Relevant explicit personal memories "
             "may be supplied below.",
         ).replace(

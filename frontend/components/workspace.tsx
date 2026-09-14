@@ -599,14 +599,15 @@ function SignedWorkspace({
           {!panel &&
             actions.some(
               (a) =>
-                a.status === "pending_confirmation" &&
+                (a.status === "pending_confirmation" || a.device_id === null) &&
                 a.conversation_id === conversation,
             ) && (
               <div className="inline-actions">
                 <RecentActions
                   actions={actions.filter(
                     (a) =>
-                      a.status === "pending_confirmation" &&
+                      (a.status === "pending_confirmation" ||
+                        a.device_id === null) &&
                       a.conversation_id === conversation,
                   )}
                   devices={devices}

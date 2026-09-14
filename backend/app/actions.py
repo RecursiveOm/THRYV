@@ -8,6 +8,10 @@ from app.tools import validate_tool
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 RESULTS = {
+    "url_opened": (
+        "A browser window opened for the requested URL on your device. "
+        "Page loading was not verified."
+    ),
     "application_opened": "The application window opened on your device.",
     "application_missing": "The application is not installed on this device.",
     "launch_failed": "The application could not be launched.",
@@ -57,6 +61,7 @@ def action_view(action):
         "expires_at": action.expires_at,
         "result": action.result_text,
         "conversation_id": action.conversation_id,
+        "details": json.loads(action.details or "{}"),
     }
 
 
@@ -91,9 +96,13 @@ async def expire_actions(db, owner):
     )
     for action in actions:
         text = (
-            RESULTS["timeout"]
-            if action.status == "running"
-            else ("This action expired before dispatch. No action was executed.")
+            "Public research expired without a complete answer."
+            if action.device_id is None
+            else (
+                RESULTS["timeout"]
+                if action.status == "running"
+                else ("This action expired before dispatch. No action was executed.")
+            )
         )
         result = await db.execute(
             update(Action)
@@ -112,6 +121,8 @@ async def create_action(
     db, owner, session_hash, device_id, tool_name, arguments, request_id, conversation_id=None
 ):
     tool, args = validate_tool(tool_name, arguments)
+    if tool.target == "public_web":
+        raise AppError("tool_blocked", "Start public research from a conversation.", 422)
     device = await owned_device(db, owner, device_id)
     # Serialize creation against revocation and duplicate submissions on this device.
     live = await db.execute(

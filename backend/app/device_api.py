@@ -17,10 +17,50 @@ from app.actions import (
     sync_action_message,
 )
 from app.auth import COOKIE_NAME, DB, Account, digest
-from app.database import Action, Device, Pairing, now
+from app.database import Action, ChatTurn, Conversation, Device, Pairing, now
 from app.errors import AppError
 
 router = APIRouter()
+
+
+@router.post("/api/actions/{action_id}/cancel")
+async def cancel_research(action_id: uuid.UUID, request: Request, user: Account, db: DB):
+    action = await db.scalar(
+        select(Action).where(
+            Action.id == str(action_id), Action.user_id == user.id, Action.device_id.is_(None)
+        )
+    )
+    if action is None:
+        raise AppError("not_found", "Research action not found.", 404)
+    result = await db.execute(
+        update(Action)
+        .where(Action.id == action.id, Action.status.in_(["queued", "running"]))
+        .values(
+            status="cancelled",
+            result_code="research_cancelled",
+            result_text="Public research was cancelled.",
+        )
+    )
+    if result.rowcount:
+        await db.execute(
+            update(ChatTurn)
+            .where(
+                ChatTurn.conversation_id == action.conversation_id,
+                ChatTurn.request_id == action.request_id,
+            )
+            .values(assistant_text="Public research was cancelled.", status="complete")
+        )
+        await db.execute(
+            update(Conversation)
+            .where(Conversation.id == action.conversation_id, Conversation.user_id == user.id)
+            .values(busy_until=0)
+        )
+    await db.commit()
+    task = request.app.state.research.tasks.get(action.id)
+    if task:
+        task.cancel()
+    await db.refresh(action)
+    return action_view(action)
 
 
 class Strict(BaseModel):
@@ -46,6 +86,7 @@ class Decision(Strict):
 
 class Result(Strict):
     code: Literal[
+        "url_opened",
         "application_opened",
         "application_missing",
         "launch_failed",
@@ -289,8 +330,15 @@ async def execution_result(action_id: uuid.UUID, body: Result, device: Companion
     )
     if action is None:
         raise AppError("not_found", "Action not found.", 404)
-    expected_success = "application_opened" if action.tool == "open_application" else "system_info"
-    if body.code in ("application_opened", "system_info") and body.code != expected_success:
+    expected_success = {
+        "open_application": "application_opened",
+        "open_url": "url_opened",
+        "get_system_info": "system_info",
+    }.get(action.tool)
+    if (
+        body.code in ("application_opened", "system_info", "url_opened")
+        and body.code != expected_success
+    ):
         raise AppError("invalid_result", "Result does not match the requested tool.", 422)
     text = RESULTS[body.code]
     if body.code == "system_info":
