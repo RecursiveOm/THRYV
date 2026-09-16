@@ -111,6 +111,30 @@ class DeepSeekProvider:
             finish = choice["finish_reason"]
             if tools and finish == "tool_calls":
                 calls = message.get("tool_calls", [])
+                # A V4 workflow executes one step, observes it, then replans. Keep
+                # only the first valid proposal; later proposals are NOT queued.
+                # Legacy desktop tools continue to reject batches entirely.
+                if isinstance(calls, list) and 1 < len(calls) <= 8:
+                    from app.tools import REGISTRY, validate_tool
+
+                    for call in calls:
+                        if (
+                            not isinstance(call, dict)
+                            or call.get("type") != "function"
+                            or not isinstance(call.get("function"), dict)
+                            or not isinstance(call["function"].get("name"), str)
+                            or not isinstance(json.loads(call["function"]["arguments"]), dict)
+                        ):
+                            raise ValueError("Malformed tool batch")
+                        name = call["function"]["name"]
+                        tool = REGISTRY.get(name)
+                        if not tool or not (
+                            tool.target == "integration"
+                            or name.startswith(("workspace_", "development_"))
+                        ):
+                            raise ValueError("Only V4 workflows can serialize proposals")
+                        validate_tool(name, json.loads(call["function"]["arguments"]))
+                    calls = calls[:1]
                 if (
                     message.get("role") != "assistant"
                     or not isinstance(calls, list)

@@ -63,7 +63,7 @@ class Windows:
         self.display.close()
 
 
-def execute(tool, arguments, expires_at):
+def execute(tool, arguments, expires_at, *, project_path=None):
     if time.time() >= expires_at:
         return {"code": "timeout"}
     if tool == "get_system_info" and arguments == {}:
@@ -144,6 +144,10 @@ def execute(tool, arguments, expires_at):
             flags = (*flags, "--user-data-dir=" + str(profile))
             if arguments["application"] == "chrome":
                 flags = (*flags, "--no-first-run", "--no-default-browser-check")
+        if project_path is not None:
+            if arguments["application"] != "vscode" or not Path(project_path).is_absolute():
+                return {"code": "blocked"}
+            flags = (*flags, "--disable-extensions", "--", project_path)
         # Reaping is bounded; the application remains owned by the desktop user.
         process = subprocess.Popen(
             [executable, *flags],

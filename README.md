@@ -4,6 +4,14 @@
 
 THRYV is a personal AI workspace for thinking, writing, learning, and taking small, authorized actions on your own computer. Creator attribution never implies the current user's identity. Engineering uses **GPT-6 Astra only**; DeepSeek is the runtime provider.
 
+## V4 — Developer intelligence and connected apps
+
+V4 adds explicitly authorized project workspaces, confirmed source edits, sandboxed
+development commands and Git operations, plus owned GitHub, Gmail, Calendar and Drive
+connections. Bounded workflows reuse existing confirmations, action records and Talk.
+See [V4 setup, permissions and limits](docs/v4.md). OAuth requires host configuration
+and each user's consent; GitHub client credentials alone do not connect an account.
+
 ## V3 — Public browser and live research
 
 V3 adds isolated public web search, page reading, link navigation, source-grounded answers,
@@ -141,6 +149,10 @@ For a remote backend use its HTTPS origin. HTTP is accepted only on loopback. Co
 | `get_system_info` | SAFE | Only OS and CPU architecture enums; no hostname, files, processes, or environment |
 | `open_url` | CONFIRM | Validated public HTTP(S) URL; dedicated Chrome profile; observed window, not verified page loading |
 | `search_web`, `open_webpage`, `inspect_webpage`, `follow_web_link`, `back_webpage` | SAFE | Isolated public research context owned by this conversation; bounded GET-only requests |
+| Workspace read/list/search/metadata, configured commands/process inspection, Git reads/fetch | SAFE | Explicit local project grant; bounded data and fixed GitHub origin |
+| Workspace create/edit/open, development run/start/stop, Git add/commit/push | CONFIRM | Reviewed arguments; confined project and sandbox; no arbitrary shell or force operations |
+| GitHub/Gmail/Calendar/Drive reads | SAFE | Owned OAuth connection; selected bounded API data |
+| GitHub writes, Gmail send/reply/forward, Calendar create/update/delete | CONFIRM | Exact proposed arguments and required scopes; Drive remains read-only |
 | Anything else | BLOCKED | Rejected; never dispatched |
 
 Chrome uses a dedicated local profile at `~/.local/share/thryv-companion/chrome-profile` and opens `about:blank` or the confirmed public URL. This permits X11/XWayland window verification even when your usual Chrome instance runs on Wayland. It does not use your existing signed-in browser profile. VS Code opens a new window with separate settings in `~/.local/share/thryv-companion/vscode-profile`, preventing forwarding into an existing native Wayland instance. If a new window cannot be verified, THRYV reports an unconfirmed result. Windows/macOS application launching is not implemented.
@@ -181,7 +193,7 @@ The default provider uses non-thinking, non-streaming DeepSeek chat completions 
 
 ## API and compatibility
 
-`/api/auth/register`, `/login`, `/logout` establish account identity. `/api/account/provider`, `/api/conversations`, `/api/devices`, and `/api/actions` are owned account APIs. Device-only `/api/companion/pair`, `/poll`, and `/actions/{id}/authorize|result` support pairing and scoped execution. Development OpenAPI is at `/docs`; production disables it. See [API details](docs/api-v1.md).
+`/api/auth/register`, `/login`, `/logout` establish account identity. `/api/account/provider`, `/api/conversations`, `/api/devices`, and `/api/actions` are owned account APIs. V4 adds owned `/api/workspaces` and `/api/integrations` routes. Device-only `/api/companion/pair`, `/poll`, `/workspaces`, and `/actions/{id}/authorize|result` support pairing and scoped execution. Development OpenAPI is at `/docs`; production disables it. See [V1 API details](docs/api-v1.md) and [V4 setup](docs/v4.md).
 
 V0's `/api/provider/connect` and `/api/chat` remain stateless, request-only bearer-BYOK endpoints. They cannot access saved state or execute tools. Existing V0 clients keep working; the current browser uses account-owned endpoints. V0's visual/chat/security test scenarios remain, with reload/disconnect assertions updated for the explicitly requested persistence behavior.
 
@@ -214,4 +226,4 @@ npx playwright install chromium
 npm test
 ```
 
-[Deployment preparation](docs/deployment.md) describes the persistent volume, migrations, HTTPS/site layout, backups, and limits. Public deployment still requires an explicit user instruction. No custom wake words, email, scheduling, unrestricted terminal or V4 features are included.
+[Deployment preparation](docs/deployment.md) describes the persistent volume, migrations, HTTPS/site layout, backups, and limits. Public deployment still requires an explicit user instruction. No custom wake words, proactive scheduling, payments or unrestricted terminal are included. V4 OAuth requires host configuration and separate user consent; developer execution requires Linux bubblewrap and locally configured command profiles.

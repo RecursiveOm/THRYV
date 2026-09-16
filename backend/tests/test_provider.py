@@ -186,6 +186,54 @@ async def test_malformed_structured_calls_fail_closed(calls):
         assert caught.value.code == "provider_response"
 
 
+@pytest.mark.parametrize("second_tool", ["workspace_read", "workspace_open", "open_application"])
+async def test_v4_batch_selects_one_proposal_without_execution(second_tool):
+    from app.tools import REGISTRY
+
+    workspace = "11111111-1111-4111-8111-111111111111"
+    args = {"workspace_id": workspace}
+    second_args = (
+        {"application": "chrome"}
+        if second_tool == "open_application"
+        else {**args, **({"path": "main.py"} if second_tool == "workspace_read" else {})}
+    )
+    calls = [
+        {"type": "function", "function": {"name": name, "arguments": json.dumps(arguments)}}
+        for name, arguments in [("workspace_list", args), (second_tool, second_args)]
+    ]
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "All done",
+                            "tool_calls": calls,
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = DeepSeekProvider(client, "deepseek-flash", 1)
+        definitions = [tool.definition() for tool in REGISTRY.values()]
+        if second_tool == "open_application":
+            with pytest.raises(AppError):
+                await provider.plan(KEY, MESSAGES, definitions)
+        else:
+            result = await provider.plan(KEY, MESSAGES, definitions)
+            assert result.tool_call.name == "workspace_list"
+            assert result.content == ""
+    assert len(requests) == 1
+
+
 async def test_structured_request_discards_untrusted_success_text():
     from app.tools import REGISTRY
 

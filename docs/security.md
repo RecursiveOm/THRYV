@@ -1,4 +1,40 @@
-# THRYV V3 security design and review
+# THRYV V4 security design and review
+
+## V4 additions
+
+V4 extends the inherited boundaries below with explicit project grants and OAuth
+connections; it does not grant unrestricted filesystem, shell or private-browser access.
+See [V4 architecture and limits](v4.md) for setup and the permission matrix.
+
+- Workspace IDs are bound server-side to owner and device, then independently checked
+  against private local grants. Root identity is pinned; fd-relative file access rejects
+  traversal, symbolic/hard links, special files and protected paths. Reads and enumeration
+  are bounded. Confirmed replacement checks the reviewed content hash.
+- Project code runs in a disposable bubblewrap snapshot with fixed runner profiles,
+  resource limits, no host home and no network. Development processes are owned, bounded
+  and stopped on revocation. Git transport is the narrow network exception: fixed GitHub
+  origin, sanitized configuration and an explicitly authorized local SSH agent. Hooks,
+  arbitrary remotes, force operations and private key reads are blocked.
+- OAuth state is single-use, expires and binds to the account, session and service.
+  PKCE protects the exchange. Encrypted credentials bind to owner/service; conditional
+  refresh prevents resurrecting a disconnected grant. Client credentials are host setup,
+  not user consent. Gmail/Calendar write scopes are optional; GitHub's `repo` scope is broad
+  and the UI discloses that. Drive is read-only.
+- Service adapters use fixed API origins and validated paths, suppress raw upstream
+  errors and bound/redact data before returning it to the model. Retrieved content is
+  untrusted and cannot grant permission or write memory. Email recipients/content,
+  calendar changes, GitHub writes and project execution retain separate confirmations.
+- A workflow selects one typed proposal at a time and replans after observed results;
+  extra proposals in a V4 batch are discarded, never queued or treated as executed.
+  Legacy desktop batches remain rejected. Parent cancellation/session expiry stop
+  unfinished children. Uncertain service writes are not retried automatically.
+
+Residual limits: administrators and a compromised Companion remain trusted; redaction
+cannot identify every possible secret format. File hashes do not provide transactions
+against external editors. Remote writes may complete before a network failure or
+cancellation is observed. Users must inspect uncertain outcomes before retrying.
+OAuth provider configuration and live grants require independent acceptance; mocked
+service responses do not prove a real account is connected.
 
 The inherited V1 foundation separates account identity, provider credentials, and device credentials. The server is trusted to hold account data and decrypt saved DeepSeek keys. Companion is trusted to execute its allowlisted handlers and report honestly. A compromised backend can authorize those handlers; a compromised desktop user can already run arbitrary programs outside Companion. Neither is a sandbox against its own administrator.
 

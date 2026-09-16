@@ -8,6 +8,7 @@ from app.tools import validate_tool
 
 TERMINAL = {"succeeded", "failed", "cancelled", "expired"}
 RESULTS = {
+    "workspace_result": "Workspace operation completed. Review its captured result below.",
     "url_opened": (
         "A browser window opened for the requested URL on your device. "
         "Page loading was not verified."
@@ -126,9 +127,13 @@ async def create_action(
     db, owner, session_hash, device_id, tool_name, arguments, request_id, conversation_id=None
 ):
     tool, args = validate_tool(tool_name, arguments)
-    if tool.target == "public_web":
+    if tool.target != "companion":
         raise AppError("tool_blocked", "Start public research from a conversation.", 422)
     device = await owned_device(db, owner, device_id)
+    if "workspace_id" in args:
+        from app.workspace_api import owned_workspace
+
+        await owned_workspace(db, owner, args["workspace_id"], device_id)
     # Serialize creation against revocation and duplicate submissions on this device.
     live = await db.execute(
         update(Device)

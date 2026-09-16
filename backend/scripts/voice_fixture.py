@@ -23,6 +23,8 @@ async def main():
         phrase = "Hey Thryv, open Chrome"
     if "--research" in sys.argv[2:]:
         phrase = "Research the latest FastAPI deployment recommendations."
+    if "--development" in sys.argv[2:]:
+        phrase = "Run the tests for my selected project."
     data = await speech.speak(phrase)
     with wave.open(io.BytesIO(data), "rb") as wav:
         rate = wav.getframerate()

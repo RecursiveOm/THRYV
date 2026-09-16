@@ -215,13 +215,22 @@ export type Action = {
   device_id: string | null;
   conversation_id: string | null;
   tool: string;
-  arguments: { application?: string; url?: string; query?: string };
+  arguments: {
+    application?: string;
+    url?: string;
+    query?: string;
+    workspace_id?: string;
+    path?: string;
+    content?: string;
+    sha256?: string;
+  };
   permission: string;
   status: string;
   expires_at: number;
   created_at: number;
   result: string | null;
   details?: {
+    [key: string]: unknown;
     progress?: string;
     sources?: {
       title: string;

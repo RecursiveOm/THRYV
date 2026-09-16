@@ -168,3 +168,42 @@ class VoiceSetting(Base):
         GUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
     )
     wake_enabled: Mapped[bool] = mapped_column(default=False)
+
+
+class Workspace(Base):
+    __tablename__ = "workspace"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    device_id: Mapped[str] = mapped_column(ForeignKey("device.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    path: Mapped[str] = mapped_column(String(1000))
+    revoked: Mapped[bool] = mapped_column(default=False)
+    active: Mapped[bool] = mapped_column(default=False)
+
+
+class Integration(Base):
+    __tablename__ = "integration"
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    service: Mapped[str] = mapped_column(String(20), primary_key=True)
+    ciphertext: Mapped[str] = mapped_column(Text)
+    identity: Mapped[str] = mapped_column(String(200))
+    expires_at: Mapped[int] = mapped_column(Integer)
+    scopes: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="connected")
+
+
+class OAuthState(Base):
+    __tablename__ = "oauth_state"
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    service: Mapped[str] = mapped_column(String(20))
+    session_hash: Mapped[str] = mapped_column(String(64))
+    verifier: Mapped[str] = mapped_column(Text)
+    scopes: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[int] = mapped_column(Integer)

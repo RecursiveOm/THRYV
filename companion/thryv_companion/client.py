@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from thryv_companion.executor import execute
+from thryv_companion.workspaces import Workspaces
 
 
 class Revoked(Exception):
@@ -73,7 +74,7 @@ def request(client, path, body=None):
         payload = bytearray()
         for chunk in response.iter_bytes():
             payload.extend(chunk)
-            if len(payload) > 16384:
+            if len(payload) > 100000:
                 raise ValueError("Oversized server response")
         return json.loads(payload)
 
@@ -98,7 +99,24 @@ class Ledger:
         self.db.close()
 
 
-def run_once(client, ledger):
+def run_once(client, ledger, workspaces=None):
+    if workspaces is not None:
+        from thryv_companion.development import prune_servers
+
+        prune_servers(workspaces)
+        grants = workspaces.grants()
+        result = request(
+            client,
+            "/api/companion/workspaces",
+            {
+                "workspaces": [
+                    {"id": identifier, "name": grant["name"], "path": grant["path"]}
+                    for identifier, grant in grants.items()
+                ]
+            },
+        )
+        for identifier in result.get("revoked", []):
+            workspaces.remove(identifier)
     action = request(client, "/api/companion/poll").get("action")
     if not action:
         return
@@ -111,7 +129,47 @@ def run_once(client, ledger):
         authorization = request(client, f"/api/companion/actions/{identifier}/authorize")
         if authorization.get("authorized") is not True:
             return
-        result = execute(action["tool"], action["arguments"], action["expires_at"])
+        if action["tool"].startswith(("workspace_", "development_")) and workspaces is not None:
+            try:
+                if action["tool"] == "workspace_open":
+                    workspace_id = action["arguments"]["workspace_id"]
+                    if set(action["arguments"]) != {"workspace_id"}:
+                        raise ValueError("Invalid project launch")
+                    with workspaces.root(workspace_id):
+                        outcome = execute(
+                            "open_application",
+                            {"application": "vscode"},
+                            action["expires_at"],
+                            project_path=workspaces.grants()[workspace_id]["path"],
+                        )
+                    data = {
+                        "launch_result": outcome["code"],
+                        "verified": outcome["code"] == "application_opened",
+                    }
+                elif action["tool"].startswith(("development_", "workspace_git")):
+                    from thryv_companion.development import execute as develop
+
+                    def cancelled():
+                        try:
+                            request(client, f"/api/companion/actions/{identifier}/authorize")
+                            return action["arguments"]["workspace_id"] not in workspaces.grants()
+                        except (httpx.HTTPError, Revoked):
+                            return True
+
+                    data = develop(
+                        workspaces,
+                        action["tool"],
+                        action["arguments"],
+                        action["expires_at"],
+                        cancelled,
+                    )
+                else:
+                    data = workspaces.execute(action["tool"], action["arguments"])
+                result = {"code": "workspace_result", "data": data}
+            except Exception:
+                result = {"code": "blocked"}
+        else:
+            result = execute(action["tool"], action["arguments"], action["expires_at"])
     # Retry only the sanitized RESULT; never repeat the side effect.
     for attempt in range(3):
         try:
@@ -132,7 +190,19 @@ def main():
     for name in ("httpx", "httpcore"):
         logging.getLogger(name).disabled = True
     parser = argparse.ArgumentParser(description="THRYV outbound Companion")
-    parser.add_argument("command", choices=("pair", "run"))
+    parser.add_argument(
+        "command",
+        choices=("pair", "run", "workspace-add", "workspace-remove", "workspaces", "command-add"),
+    )
+    parser.add_argument("path_or_id", nargs="?")
+    parser.add_argument("--command-name", default="tests")
+    parser.add_argument("--runner", default="pytest")
+    parser.add_argument("--cwd", default=".")
+    parser.add_argument(
+        "--allow-git-ssh",
+        action="store_true",
+        help="Authorize existing SSH agent for fixed GitHub-origin fetch/push only",
+    )
     parser.add_argument("--server", default="http://localhost:8000")
     parser.add_argument("--name", default="My Linux laptop")
     parser.add_argument("--state-dir", default="~/.local/share/thryv-companion")
@@ -159,6 +229,29 @@ def main():
             print("Paired. Run thryv-companion run in your desktop session.")
             return
         data = read_credentials(credentials)
+        workspaces = Workspaces(directory)
+        if args.command == "command-add":
+            from thryv_companion.development import configure
+
+            configure(workspaces, args.path_or_id, args.command_name, args.runner, args.cwd)
+            print("Configured fixed development runner. Each run still requires confirmation.")
+            return
+        if args.command == "workspace-add":
+            identifier = workspaces.add(args.path_or_id or "")
+            if args.allow_git_ssh:
+                grants = workspaces.grants()
+                grants[identifier]["git_ssh"] = True
+                workspaces.save(grants)
+            print("Authorized workspace:", identifier)
+            return
+        if args.command == "workspace-remove":
+            workspaces.remove(str(uuid.UUID(args.path_or_id or "")))
+            print("Workspace removed. Running Companion will sync revocation.")
+            return
+        if args.command == "workspaces":
+            for identifier, grant in workspaces.grants().items():
+                print(identifier, grant["path"])
+            return
         ledger = Ledger(directory / "executions.sqlite")
         try:
             with httpx.Client(
@@ -172,7 +265,7 @@ def main():
                 delay = 2
                 while True:
                     try:
-                        run_once(client, ledger)
+                        run_once(client, ledger, workspaces)
                         delay = 2
                     except (httpx.HTTPError, ValueError, KeyError, TypeError):
                         print("Connection or request unavailable; retrying with bounded backoff.")
@@ -180,6 +273,9 @@ def main():
                     time.sleep(delay)
         finally:
             ledger.close()
+            from thryv_companion.development import close_servers
+
+            close_servers()
     except Revoked:
         print("Device credential invalid or revoked. Companion stopped.")
         raise SystemExit(1) from None

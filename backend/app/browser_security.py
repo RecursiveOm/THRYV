@@ -27,6 +27,8 @@ class BrowserSecurity:
                 "/api/actions",
                 "/api/memories",
                 "/api/voice",
+                "/api/workspaces",
+                "/api/integrations",
             )
         )
         if browser_api and scope["method"] not in ("GET", "HEAD", "OPTIONS"):

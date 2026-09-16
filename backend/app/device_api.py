@@ -27,18 +27,37 @@ router = APIRouter()
 async def cancel_research(action_id: uuid.UUID, request: Request, user: Account, db: DB):
     action = await db.scalar(
         select(Action).where(
-            Action.id == str(action_id), Action.user_id == user.id, Action.device_id.is_(None)
+            Action.id == str(action_id),
+            Action.user_id == user.id,
+            (
+                (
+                    Action.device_id.is_(None)
+                    & Action.tool.in_(
+                        [
+                            "search_web",
+                            "open_webpage",
+                            "inspect_webpage",
+                            "follow_web_link",
+                            "back_webpage",
+                        ]
+                    )
+                )
+                | (Action.tool == "v4_workflow")
+            ),
         )
     )
     if action is None:
         raise AppError("not_found", "Research action not found.", 404)
+    cancellation = (
+        "Workflow cancelled." if action.tool == "v4_workflow" else "Public research was cancelled."
+    )
     result = await db.execute(
         update(Action)
         .where(Action.id == action.id, Action.status.in_(["queued", "running"]))
         .values(
             status="cancelled",
             result_code="research_cancelled",
-            result_text="Public research was cancelled.",
+            result_text=cancellation,
         )
     )
     if result.rowcount:
@@ -48,7 +67,7 @@ async def cancel_research(action_id: uuid.UUID, request: Request, user: Account,
                 ChatTurn.conversation_id == action.conversation_id,
                 ChatTurn.request_id == action.request_id,
             )
-            .values(assistant_text="Public research was cancelled.", status="complete")
+            .values(assistant_text=cancellation, status="complete")
         )
         await db.execute(
             update(Conversation)
@@ -57,6 +76,7 @@ async def cancel_research(action_id: uuid.UUID, request: Request, user: Account,
         )
     await db.commit()
     task = request.app.state.research.tasks.get(action.id)
+    task = task or request.app.state.workflows.tasks.get(action.id)
     if task:
         task.cancel()
     await db.refresh(action)
@@ -96,9 +116,11 @@ class Result(Strict):
         "timeout",
         "blocked",
         "execution_uncertain",
+        "workspace_result",
     ]
     platform: Literal["Linux", "Windows", "Darwin"] | None = None
     architecture: Literal["x86_64", "aarch64", "arm64", "unknown"] | None = None
+    data: dict = Field(default_factory=dict)
 
 
 async def authenticated_device(request: Request, db: DB):
@@ -239,9 +261,17 @@ async def decision(action_id: uuid.UUID, body: Decision, request: Request, user:
         raise AppError(
             "confirmation_session", "Approve this action in the session that requested it.", 403
         )
-    device = await owned_device(db, user.id, action.device_id)
-    if device.revoked or (body.allow and device.last_seen < now() - 15):
-        raise AppError("device_offline", "The device is unavailable. No action was approved.", 409)
+    if action.device_id is not None:
+        device = await owned_device(db, user.id, action.device_id)
+        if device.revoked or (body.allow and device.last_seen < now() - 15):
+            raise AppError(
+                "device_offline", "The device is unavailable. No action was approved.", 409
+            )
+        args = json.loads(action.arguments)
+        if "workspace_id" in args:
+            from app.workspace_api import owned_workspace
+
+            await owned_workspace(db, user.id, args["workspace_id"], device.id)
     status = "queued" if body.allow else "cancelled"
     result = await db.execute(
         update(Action)
@@ -250,7 +280,7 @@ async def decision(action_id: uuid.UUID, body: Decision, request: Request, user:
             Action.status == "pending_confirmation",
             Action.expires_at > now(),
         )
-        .values(status=status, expires_at=now() + 30)
+        .values(status=status, expires_at=now() + (70 if action.tool == "development_run" else 30))
     )
     if not result.rowcount:
         raise AppError(
@@ -305,6 +335,7 @@ async def poll(device: Companion, db: DB):
 
 @router.post("/api/companion/actions/{action_id}/authorize")
 async def authorize_execution(action_id: uuid.UUID, device: Companion, db: DB):
+    device.last_seen = now()
     action = await db.scalar(
         select(Action).where(
             Action.id == str(action_id),
@@ -316,6 +347,12 @@ async def authorize_execution(action_id: uuid.UUID, device: Companion, db: DB):
     )
     if action is None:
         raise AppError("action_unavailable", "This action is no longer authorized.", 409)
+    args = json.loads(action.arguments)
+    if "workspace_id" in args:
+        from app.workspace_api import owned_workspace
+
+        await owned_workspace(db, device.user_id, args["workspace_id"], device.id)
+    await db.commit()
     return {"authorized": True}
 
 
@@ -335,21 +372,37 @@ async def execution_result(action_id: uuid.UUID, body: Result, device: Companion
         "open_url": "url_opened",
         "get_system_info": "system_info",
     }.get(action.tool)
+    if action.tool.startswith(("workspace_", "development_")):
+        expected_success = "workspace_result"
     if (
-        body.code in ("application_opened", "system_info", "url_opened")
+        body.code in ("application_opened", "system_info", "url_opened", "workspace_result")
         and body.code != expected_success
     ):
         raise AppError("invalid_result", "Result does not match the requested tool.", 422)
     text = RESULTS[body.code]
+    details = "{}"
+    if body.code == "workspace_result":
+        details = json.dumps(body.data)
+        if len(details.encode()) > 100_000:
+            raise AppError("invalid_result", "Workspace result exceeds the output limit.", 422)
+        if "exit_code" in body.data:
+            text = f"Command exit code: {body.data['exit_code']}. " + (
+                "Verification passed in the isolated snapshot."
+                if body.data.get("verified") is True and body.data["exit_code"] == 0
+                else "Verification did not pass. Review the captured output."
+            )
     if body.code == "system_info":
         text = f"Device reports {body.platform or 'unknown OS'} ({body.architecture or 'unknown'})."
     result = await db.execute(
         update(Action)
         .where(Action.id == action.id, Action.status == "running", Action.expires_at > now())
         .values(
-            status="succeeded" if body.code == expected_success else "failed",
+            status="succeeded"
+            if body.code == expected_success and body.data.get("verified", True) is True
+            else "failed",
             result_code=body.code,
             result_text=text,
+            details=details,
         )
     )
     if not result.rowcount:

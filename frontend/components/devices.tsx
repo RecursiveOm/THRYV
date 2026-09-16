@@ -168,35 +168,81 @@ export function RecentActions({
       {actions.map((a) => (
         <article key={a.id} className="action-card">
           <strong>
-            {a.tool === "open_application"
-              ? `Open ${a.arguments.application === "chrome" ? "Chrome" : "VS Code"}`
-              : a.tool === "open_url"
-                ? "Open website on your computer"
-                : a.device_id === null
-                  ? "Public web research"
-                  : "Read basic system information"}
+            {a.tool === "v4_workflow"
+              ? "Requested workflow"
+              : /^(workspace_|development_|github_|gmail_|calendar_|drive_)/.test(
+                    a.tool,
+                  )
+                ? a.tool.replaceAll("_", " ")
+                : a.tool === "open_application"
+                  ? `Open ${a.arguments.application === "chrome" ? "Chrome" : "VS Code"}`
+                  : a.tool === "open_url"
+                    ? "Open website on your computer"
+                    : a.device_id === null
+                      ? "Public web research"
+                      : "Read basic system information"}
           </strong>
           <p>
             {a.device_id === null
-              ? "Isolated public research context"
+              ? a.tool === "v4_workflow" ||
+                /^(github_|gmail_|calendar_|drive_)/.test(a.tool)
+                ? "Your connected services"
+                : "Isolated public research context"
               : `On ${devices.find((d) => d.id === a.device_id)?.name || "paired device"}`}
           </p>
           {a.arguments.url && <p>{a.arguments.url}</p>}
           {a.arguments.query && <p>{a.arguments.query}</p>}
+          {a.tool !== "v4_workflow" &&
+            /^(workspace_git|development_|github_|gmail_|calendar_|drive_)/.test(
+              a.tool,
+            ) && (
+              <details open={a.status === "pending_confirmation"}>
+                <summary>Review exact action</summary>
+                <pre>{JSON.stringify(a.arguments, null, 2)}</pre>
+              </details>
+            )}
+          {a.details?.progress && <p>{a.details.progress}</p>}
+          {a.details?.data !== undefined && (
+            <details>
+              <summary>Captured service result</summary>
+              <pre>{JSON.stringify(a.details.data, null, 2)}</pre>
+            </details>
+          )}
+          {a.arguments.workspace_id && (
+            <p>Workspace: {a.arguments.workspace_id}</p>
+          )}
+          {a.arguments.path && <p>File: {a.arguments.path}</p>}
+          {a.arguments.content !== undefined && (
+            <details>
+              <summary>Review proposed file content</summary>
+              <pre>{a.arguments.content}</pre>
+            </details>
+          )}
+          {/^(workspace_|development_)/.test(a.tool) && a.details && (
+            <details>
+              <summary>Captured project result</summary>
+              <pre>{JSON.stringify(a.details, null, 2)}</pre>
+            </details>
+          )}
           <small>
             {a.permission} · {a.status.replaceAll("_", " ")} ·{" "}
             {new Date(a.created_at * 1000).toLocaleString()}
           </small>
           {a.result && <p>{a.result}</p>}
-          {a.device_id === null && ["queued", "running"].includes(a.status) && (
-            <button
-              className="text-button"
-              disabled={Boolean(busy)}
-              onClick={() => cancel(a.id)}
-            >
-              Cancel research
-            </button>
-          )}
+          {((a.device_id === null &&
+            !/^(github_|gmail_|calendar_|drive_)/.test(a.tool)) ||
+            a.tool === "v4_workflow") &&
+            ["queued", "running"].includes(a.status) && (
+              <button
+                className="text-button"
+                disabled={Boolean(busy)}
+                onClick={() => cancel(a.id)}
+              >
+                {a.tool === "v4_workflow"
+                  ? "Cancel workflow"
+                  : "Cancel research"}
+              </button>
+            )}
           {a.details?.sources?.map((source) => (
             <details key={source.url}>
               <summary>{source.title}</summary>
@@ -218,7 +264,12 @@ export function RecentActions({
           {a.status === "pending_confirmation" && (
             <div>
               <p>
-                Launches a new application window. Approval expires at{" "}
+                {/^(workspace_|development_|github_|gmail_|calendar_)/.test(
+                  a.tool,
+                )
+                  ? "Review the exact project or connected-service action above."
+                  : "Launches a new application window."}{" "}
+                Approval expires at{" "}
                 {new Date(a.expires_at * 1000).toLocaleTimeString()}.
               </p>
               <button

@@ -15,11 +15,15 @@ from app.config import Settings
 from app.database import configure_database
 from app.device_api import router as device_router
 from app.errors import AppError
+from app.integrations import Transport
+from app.integrations import router as integration_router
 from app.memory_api import router as memory_router
 from app.middleware import RequestBoundary
 from app.research import Research
 from app.speech import LocalSpeech
 from app.voice_api import router as voice_router
+from app.workflows import Workflows
+from app.workspace_api import router as workspace_router
 
 logger = logging.getLogger("thryv")
 
@@ -48,12 +52,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.info("THRYV starting")
         yield
         await app.state.research.close()
+        await app.state.workflows.close()
         await app.state.engine.dispose()
         logger.info("THRYV stopped")
 
     app = FastAPI(
         title="THRYV",
-        version="3.0.0",
+        version="4.0.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.app_env == "development" else None,
         redoc_url=None,
@@ -61,8 +66,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.speech = LocalSpeech(settings)
+    app.state.integrations = Transport()
     configure_database(app, settings.database_url.get_secret_value())
     app.state.research = Research(app)
+    app.state.workflows = Workflows(app)
     install_auth(app, settings)
 
     @app.exception_handler(AppError)
@@ -113,6 +120,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(memory_router)
     app.include_router(voice_router)
     app.include_router(device_router)
+    app.include_router(workspace_router)
+    app.include_router(integration_router)
     app.add_middleware(
         BrowserSecurity,
         origin=settings.frontend_origin,

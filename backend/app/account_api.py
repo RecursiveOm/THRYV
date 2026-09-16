@@ -1,5 +1,7 @@
 import json
 import uuid
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool
@@ -12,8 +14,10 @@ from app.database import (
     Action,
     ChatTurn,
     Conversation,
+    Integration,
     ProviderCredential,
     VoiceSetting,
+    Workspace,
     conversation_clock,
     now,
 )
@@ -41,6 +45,7 @@ class SendMessage(BaseModel):
     message: UserText
     request_id: uuid.UUID
     device_id: uuid.UUID | None = None
+    timezone: str = Field(default="UTC", max_length=80)
 
 
 class NewConversation(BaseModel):
@@ -201,6 +206,10 @@ async def send_message(
     runtime: Provider,
     voice: Speech,
 ):
+    try:
+        ZoneInfo(body.timezone)
+    except (ValueError, ZoneInfoNotFoundError):
+        raise AppError("invalid_timezone", "Use a recognized timezone.", 422) from None
     item = await owned_conversation(db, user.id, str(conversation_id))
     selected_device = None
     if body.device_id:
@@ -252,7 +261,7 @@ async def send_message(
                 select(Action.request_id).where(
                     Action.conversation_id == item.id,
                     Action.user_id == user.id,
-                    Action.device_id.is_(None),
+                    Action.device_id.is_(None) | (Action.tool == "v4_workflow"),
                 )
             )
         ).all()
@@ -277,6 +286,7 @@ async def send_message(
     await db.commit()
     action = None
     research_action = False
+    workflow_action = False
     truncated = False
     try:
         if remembered:
@@ -286,7 +296,30 @@ async def send_message(
             relevant = await retrieve(db, user.id, memory_query(body.message))
             speech_status = voice.status()
             voice_setting = await db.get(VoiceSetting, user.id)
+            workspace = await db.scalar(
+                select(Workspace).where(
+                    Workspace.user_id == user.id,
+                    Workspace.active.is_(True),
+                    Workspace.revoked.is_(False),
+                    Workspace.device_id == str(body.device_id),
+                )
+            )
             capabilities = {
+                "connected_services": list(
+                    (
+                        await db.scalars(
+                            select(Integration.service).where(
+                                Integration.user_id == user.id, Integration.status == "connected"
+                            )
+                        )
+                    ).all()
+                ),
+                "timezone": body.timezone,
+                "current_time_utc": datetime.now(UTC).isoformat(),
+                "relevant_memories": relevant,
+                "active_workspace": {"id": workspace.id, "name": workspace.name}
+                if workspace
+                else None,
                 "talk_input": bool(speech_status.get("stt")),
                 "speech_output": bool(speech_status.get("tts")),
                 "wake_available": bool(speech_status.get("wake")),
@@ -307,7 +340,29 @@ async def send_message(
         truncated = completion.truncated
         if completion.tool_call:
             requested = REGISTRY.get(completion.tool_call.name)
-            if requested and requested.target == "public_web":
+            from app.workflows import V4_TOOLS
+
+            if completion.tool_call.name in V4_TOOLS:
+                if len(request.app.state.workflows.tasks) >= 4:
+                    raise AppError("server_busy", "Developer/integration workflows are busy.", 429)
+                action = Action(
+                    user_id=user.id,
+                    session_hash=digest(request.cookies[COOKIE_NAME]),
+                    device_id=str(body.device_id) if body.device_id else None,
+                    conversation_id=item.id,
+                    request_id=str(body.request_id),
+                    tool="v4_workflow",
+                    arguments="{}",
+                    permission="SAFE",
+                    status="queued",
+                    expires_at=now() + 300,
+                    result_text="Starting requested workflow…",
+                )
+                db.add(action)
+                await db.flush()
+                turn.assistant_text = action.result_text
+                workflow_action = True
+            elif requested and requested.target == "public_web":
                 if len(request.app.state.research.tasks) >= 8:
                     raise AppError("server_busy", "Research is busy. Try again shortly.", 429)
                 tool, args = validate_tool(
@@ -363,13 +418,20 @@ async def send_message(
         await db.execute(
             update(Conversation)
             .where(Conversation.id == item.id, Conversation.busy_until == lease)
-            .values(busy_until=lease if research_action else 0, updated_at=conversation_clock())
+            .values(
+                busy_until=(action.expires_at if workflow_action else lease)
+                if research_action or workflow_action
+                else 0,
+                updated_at=conversation_clock(),
+            )
         )
         if item.title == "New conversation":
             item.title = body.message[:80]
         await db.commit()
     if research_action:
         request.app.state.research.start(action.id, key, lease)
+    if workflow_action:
+        request.app.state.workflows.start(action.id, completion.tool_call, capabilities)
     return {
         "message": {"role": "assistant", "content": turn.assistant_text},
         "truncated": truncated,

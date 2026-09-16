@@ -40,6 +40,32 @@ class FollowLink(SystemInfo):
     link_id: int = Field(ge=1, le=150)
 
 
+class WorkspaceArgs(SystemInfo):
+    workspace_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+
+
+class WorkspacePath(WorkspaceArgs):
+    path: str = Field(min_length=1, max_length=500)
+
+
+class WorkspaceSearch(WorkspaceArgs):
+    query: str = Field(min_length=1, max_length=200)
+
+
+class WorkspaceWrite(WorkspacePath):
+    content: str = Field(max_length=48000)
+    sha256: str = Field(pattern=r"^(?:[0-9a-f]{64})?$")
+
+
+class DevelopmentRun(WorkspaceArgs):
+    command: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,29}$")
+    test_path: str = Field(default="", max_length=300)
+
+
+class WorkspaceGit(WorkspaceArgs):
+    operation: Literal["status", "diff", "log", "branch"]
+
+
 @dataclass(frozen=True)
 class Tool:
     name: str
@@ -117,6 +143,130 @@ REGISTRY = {
         "SAFE",
     ),
 }
+
+for name, description, schema, permission in [
+    (
+        "workspace_list",
+        "List bounded files in an explicitly authorized project.",
+        WorkspaceArgs,
+        "SAFE",
+    ),
+    (
+        "workspace_read",
+        "Read a project text file; protected secrets are withheld.",
+        WorkspacePath,
+        "SAFE",
+    ),
+    ("workspace_metadata", "Inspect project file size and content hash.", WorkspacePath, "SAFE"),
+    (
+        "workspace_search",
+        "Search literal text in authorized project files.",
+        WorkspaceSearch,
+        "SAFE",
+    ),
+    (
+        "workspace_write",
+        "Create/edit one file after confirmation. Supply its read sha256 for edits; "
+        "empty hash for exclusive creation. Never overwrite unreviewed changes.",
+        WorkspaceWrite,
+        "CONFIRM",
+    ),
+]:
+    REGISTRY[name] = Tool(name, description, schema, permission)
+
+REGISTRY.update(
+    {
+        "development_commands": Tool(
+            "development_commands",
+            "List locally approved development commands.",
+            WorkspaceArgs,
+            "SAFE",
+        ),
+        "development_run": Tool(
+            "development_run",
+            "Run an approved test/lint/type/build command in an isolated snapshot. "
+            "First use development_commands and copy its exact command name; do not guess. "
+            "Requires confirmation. Optional test_path selects a focused pytest node.",
+            DevelopmentRun,
+            "CONFIRM",
+        ),
+        "workspace_git": Tool(
+            "workspace_git",
+            "Inspect actual project Git status, diff, latest five commits or branch.",
+            WorkspaceGit,
+            "SAFE",
+        ),
+    }
+)
+
+
+class DevelopmentStart(WorkspaceArgs):
+    command: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,29}$")
+    port: int = Field(ge=1024, le=65535)
+
+
+class DevelopmentStop(WorkspaceArgs):
+    process_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+
+
+class WorkspaceGitWrite(WorkspaceArgs):
+    operation: Literal["add", "commit", "push"]
+    paths: list[str] = Field(default_factory=list, max_length=20)
+    message: str = Field(default="", max_length=200)
+    branch: str = Field(default="", max_length=100)
+    review_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+REGISTRY.update(
+    {
+        "workspace_open": Tool(
+            "workspace_open",
+            "Open the authorized project in VS Code; confirmation "
+            "and window verification required.",
+            WorkspaceArgs,
+            "CONFIRM",
+        ),
+        "development_start": Tool(
+            "development_start",
+            "Start an approved server in an isolated namespace (no host preview port).",
+            DevelopmentStart,
+            "CONFIRM",
+        ),
+        "development_stop": Tool(
+            "development_stop",
+            "Stop only a THRYV-started workspace process.",
+            DevelopmentStop,
+            "CONFIRM",
+        ),
+        "development_processes": Tool(
+            "development_processes",
+            "Inspect THRYV-started processes and configured isolated ports.",
+            WorkspaceArgs,
+            "SAFE",
+        ),
+    }
+)
+
+
+REGISTRY.update(
+    {
+        "workspace_git_write": Tool(
+            "workspace_git_write",
+            "Stage explicit files, commit staged changes, or push "
+            "one branch to the existing GitHub origin. Requires "
+            "current review_hash from workspace_git and "
+            "confirmation. Never force.",
+            WorkspaceGitWrite,
+            "CONFIRM",
+        ),
+        "workspace_git_fetch": Tool(
+            "workspace_git_fetch",
+            "Fetch the existing fixed GitHub origin; no arbitrary remote or credentials.",
+            WorkspaceArgs,
+            "SAFE",
+        ),
+    }
+)
 
 
 def permission_for(name: str) -> str:

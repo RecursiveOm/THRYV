@@ -1,6 +1,194 @@
 import { test, expect, type Page } from "@playwright/test";
 import { boundedHistory } from "../lib/api";
 
+test("V4 connected apps show owned status and workspace selection/revocation", async ({
+  page,
+}) => {
+  await connect(page);
+  let active = false;
+  let revoked = false;
+  await page.route("**/api/workspaces", (route) =>
+    route.fulfill({
+      json: revoked
+        ? []
+        : [
+            {
+              id: "project-one",
+              name: "Fixture project",
+              path: "/home/owner/Fixture",
+              device_id: "device-one",
+              active,
+            },
+          ],
+    }),
+  );
+  await page.route("**/api/workspaces/project-one/select", async (route) => {
+    active = true;
+    await route.fulfill({
+      json: { selected: "project-one", device_id: "device-one" },
+    });
+  });
+  await page.route("**/api/workspaces/project-one", async (route) => {
+    revoked = true;
+    await route.fulfill({ json: { revoked: true } });
+  });
+  await page.route("**/api/integrations", (route) =>
+    route.fulfill({
+      json: [
+        {
+          service: "github",
+          configured: true,
+          status: "connected",
+          identity: "separate-github-account",
+          scopes: ["repo"],
+        },
+        {
+          service: "gmail",
+          configured: false,
+          status: "disconnected",
+          identity: null,
+          scopes: [],
+        },
+        {
+          service: "calendar",
+          configured: false,
+          status: "disconnected",
+          identity: null,
+          scopes: [],
+        },
+        {
+          service: "drive",
+          configured: false,
+          status: "disconnected",
+          identity: null,
+          scopes: [],
+        },
+      ],
+    }),
+  );
+  await page
+    .getByRole("button", { name: "DeepSeek connected — provider settings" })
+    .click();
+  const apps = page.getByRole("region", { name: "Connected Apps" });
+  await expect(apps).toContainText("separate-github-account");
+  await expect(
+    apps.getByRole("button", { name: "Connect Gmail", exact: true }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Select Fixture project" }).click();
+  await expect(
+    page.getByRole("region", { name: "Authorized Workspaces" }),
+  ).toContainText("Active");
+  await page.getByRole("button", { name: "Revoke Fixture project" }).click();
+  await expect(
+    page.getByRole("button", { name: "Revoke Fixture project" }),
+  ).toHaveCount(0);
+});
+
+test("V4 service confirmation displays exact recipient and payload before approval", async ({
+  page,
+}) => {
+  await connect(page);
+  let approved = 0;
+  const action = {
+    id: "fixture-action",
+    device_id: null,
+    conversation_id: null,
+    tool: "gmail_send",
+    arguments: {
+      operation: "send",
+      to: "review@example.com",
+      subject: "Reviewed subject",
+      body: "Exact message",
+    },
+    permission: "CONFIRM",
+    status: "pending_confirmation",
+    created_at: 1,
+    expires_at: 9999999999,
+    result: null,
+    details: {},
+  };
+  await page.route("**/api/actions", (route) =>
+    route.fulfill({ json: [action] }),
+  );
+  await page.route("**/api/actions/fixture-action/decision", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ allow: true });
+    approved++;
+    action.status = "succeeded";
+    await route.fulfill({ json: action });
+  });
+  await page
+    .getByRole("button", { name: /Devices/ })
+    .first()
+    .click();
+  await expect(
+    page.getByText("review@example.com", { exact: false }),
+  ).toBeVisible();
+  expect(approved).toBe(0);
+  await page.getByRole("button", { name: "Allow action" }).click();
+  expect(approved).toBe(1);
+  await expect(page.getByRole("button", { name: "Allow action" })).toHaveCount(
+    0,
+  );
+});
+
+test("V4 Git confirmation exposes branch and development output remains inspectable", async ({
+  page,
+}) => {
+  await connect(page);
+  const base = {
+    device_id: "device-one",
+    conversation_id: null,
+    created_at: 1,
+    expires_at: 9999999999,
+    result: null,
+  };
+  await page.route("**/api/actions", (route) =>
+    route.fulfill({
+      json: [
+        {
+          ...base,
+          id: "git-one",
+          tool: "workspace_git_write",
+          permission: "CONFIRM",
+          status: "pending_confirmation",
+          details: {},
+          arguments: {
+            workspace_id: "project-one",
+            operation: "push",
+            branch: "reviewed-branch",
+          },
+        },
+        {
+          ...base,
+          id: "run-one",
+          tool: "development_run",
+          permission: "CONFIRM",
+          status: "succeeded",
+          arguments: { workspace_id: "project-one", command: "tests" },
+          details: {
+            exit_code: 0,
+            verified: true,
+            output: "Fixture: 3 tests passed",
+          },
+        },
+      ],
+    }),
+  );
+  await page
+    .getByRole("button", { name: /Devices/ })
+    .first()
+    .click();
+  await expect(page.getByText(/reviewed-branch/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Allow action" }),
+  ).toBeVisible();
+  const run = page
+    .locator(".action-card")
+    .filter({ hasText: "development run" });
+  await run.getByText("Captured project result").click();
+  await expect(run.getByText(/Fixture: 3 tests passed/)).toBeVisible();
+});
+
 test("V3 public research shows progress, grounded sources and cancellation", async ({
   page,
 }) => {
@@ -358,7 +546,10 @@ test("replacing the key preserves conversation and closes settings", async ({
   await page
     .getByLabel("DeepSeek API key", { exact: true })
     .fill("test-only-valid-key");
-  await page.getByRole("dialog").getByRole("checkbox").check();
+  await page
+    .getByRole("dialog")
+    .getByRole("checkbox", { name: /Save my key encrypted/ })
+    .check();
   await page.getByRole("button", { name: "Connect new key" }).click();
   await expect(page.getByRole("dialog")).not.toBeVisible();
   await expect(page.getByRole("log")).toContainText(

@@ -36,6 +36,8 @@ import { Authentication } from "./authentication";
 import { Devices, RecentActions } from "./devices";
 import { MemoryPanel } from "./memory-panel";
 import { VoiceControls } from "./voice-controls";
+import { ProjectPanel } from "./project-panel";
+import { ConnectedApps } from "./connected-apps";
 
 const starters = [
   {
@@ -371,6 +373,7 @@ function SignedWorkspace({
           message: text,
           request_id: crypto.randomUUID(),
           device_id: deviceId || null,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
         current.signal,
       );
@@ -599,7 +602,9 @@ function SignedWorkspace({
           {!panel &&
             actions.some(
               (a) =>
-                (a.status === "pending_confirmation" || a.device_id === null) &&
+                (a.status === "pending_confirmation" ||
+                  a.device_id === null ||
+                  a.tool === "v4_workflow") &&
                 a.conversation_id === conversation,
             ) && (
               <div className="inline-actions">
@@ -607,7 +612,8 @@ function SignedWorkspace({
                   actions={actions.filter(
                     (a) =>
                       (a.status === "pending_confirmation" ||
-                        a.device_id === null) &&
+                        a.device_id === null ||
+                        a.tool === "v4_workflow") &&
                       a.conversation_id === conversation,
                   )}
                   devices={devices}
@@ -856,6 +862,8 @@ function SignedWorkspace({
           your conversations.
         </p>
         {settings && <KeyForm onConnect={connect} isSettings />}
+        {settings && <ProjectPanel onSelect={setDeviceId} />}
+        {settings && <ConnectedApps />}
         <button className="disconnect-button" onClick={disconnect}>
           <LogOut size={16} /> Remove saved key
         </button>
