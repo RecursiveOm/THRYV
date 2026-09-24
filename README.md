@@ -12,6 +12,10 @@ connections. Bounded workflows reuse existing confirmations, action records and 
 See [V4 setup, permissions and limits](docs/v4.md). OAuth requires host configuration
 and each user's consent; GitHub client credentials alone do not connect an account.
 
+The [V4 interface](docs/v4-ui.md) groups utilities in a dedicated Settings page,
+with searchable conversations, a mobile navigation drawer and Light/Dark/System themes.
+Talk stays beside the input; secondary controls live under Voice options or Settings → Voice.
+
 ## V3 — Public browser and live research
 
 V3 adds isolated public web search, page reading, link navigation, source-grounded answers,

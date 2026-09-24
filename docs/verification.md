@@ -85,3 +85,24 @@ engineer's authorized release push to the existing THRYV remote.
 
 These missing external grants do not block the other V4 work under the user's scope.
 See [security review](security.md) and [V4 setup and limits](v4.md).
+
+## V4 interface refinement — 2026-09-24
+
+Frontend-only cleanup adds searchable sidebar navigation, mobile drawer, dedicated
+Settings sections, grouped voice controls and persistent Light/Dark/System themes.
+See [V4 interface cleanup](v4-ui.md).
+
+- Focused interface/navigation checks passed on desktop and mobile.
+- One complete browser run: 63 passed, 7 failed. Six failures were stale navigation
+  or help-text expectations; one exposed a mobile voice-options tray covering an
+  approval control. Updated the tests and made the tray dismiss on submission,
+  outside interaction and Escape.
+- Focused final recheck: 10 passed, covering all seven failures plus paired desktop/
+  mobile confirmation cases. All 70 distinct browser cases are now verified across
+  the full run and focused rechecks; the full run was not repeated.
+- Final frontend lint, TypeScript checks and production build passed.
+- Visually inspected desktop/mobile chat and settings in light/dark themes; checked
+  mobile overflow, focus restoration, theme persistence and draft retention.
+- Reviewed the frontend diff for confirmation visibility, single voice-controller
+  ownership and credential handling. No backend, Companion, permission, OAuth or
+  wake-detection changes. No new live OAuth acceptance claim or backend rerun.

@@ -1,6 +1,149 @@
 import { test, expect, type Page } from "@playwright/test";
 import { boundedHistory } from "../lib/api";
 
+async function settingsSection(page: Page, name: string) {
+  if (
+    !(await page
+      .getByRole("main", { name: "Settings", exact: true })
+      .isVisible())
+  )
+    await page
+      .getByRole("button", { name: "DeepSeek connected — provider settings" })
+      .click();
+  await page
+    .getByRole("navigation", { name: "Settings sections" })
+    .getByRole("button", { name, exact: true })
+    .click();
+}
+async function backToChat(page: Page) {
+  const back = page.getByRole("button", { name: "Back to chat", exact: true });
+  if (await back.isVisible()) await back.click();
+}
+async function toggleDevices(page: Page) {
+  if (
+    await page.getByRole("region", { name: "Devices", exact: true }).isVisible()
+  )
+    await backToChat(page);
+  else await settingsSection(page, "Devices");
+}
+
+test("UI settings, theme persistence, draft and mobile navigation", async ({
+  page,
+}, info) => {
+  await connect(page);
+  const input = page.getByLabel("Message THRYV", { exact: true });
+  await input.fill("Keep my draft");
+  if (process.env.THRYV_UI_SCREENSHOTS)
+    await page.screenshot({
+      animations: "disabled",
+      path: `/tmp/thryv-ui-${info.project.name}-chat.png`,
+    });
+  const menu = page.getByRole("button", {
+    name: "Open navigation",
+    exact: true,
+  });
+  if (await menu.isVisible()) {
+    await menu.click();
+    await expect(
+      page.getByRole("dialog", { name: "Navigation" }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeFocused();
+  }
+  await settingsSection(page, "Appearance");
+  await page.getByRole("radio", { name: "Dark", exact: true }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  if (process.env.THRYV_UI_SCREENSHOTS)
+    await page.screenshot({
+      animations: "disabled",
+      path: `/tmp/thryv-ui-${info.project.name}-settings-dark.png`,
+    });
+  await backToChat(page);
+  await expect(input).toHaveValue("Keep my draft");
+  if (process.env.THRYV_UI_SCREENSHOTS)
+    await page.screenshot({
+      animations: "disabled",
+      path: `/tmp/thryv-ui-${info.project.name}-chat-dark.png`,
+    });
+  await settingsSection(page, "Appearance");
+  await page.reload();
+  await expect(
+    page.getByRole("radio", { name: "Dark", exact: true }),
+  ).toBeChecked();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("radio", { name: "Light", exact: true }).check();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await page.getByRole("radio", { name: "System", exact: true }).check();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("UI voice preferences share one controller across chat and settings", async ({
+  page,
+}) => {
+  await connect(page);
+  await expect(
+    page.getByRole("button", { name: "Read reply", exact: true }),
+  ).not.toBeVisible();
+  await settingsSection(page, "Voice");
+  const voice = page.getByRole("region", { name: "Voice", exact: true });
+  await expect(voice).toHaveCount(1);
+  await voice.getByRole("checkbox", { name: "Speak voice replies" }).uncheck();
+  const wake = voice.getByRole("checkbox", { name: /Wake word/ });
+  await expect(wake).not.toBeChecked();
+  await backToChat(page);
+  await page.getByText("Voice options", { exact: true }).click();
+  await expect(
+    voice.getByRole("checkbox", { name: "Speak voice replies" }),
+  ).not.toBeChecked();
+  await page.reload();
+  await page.getByText("Voice options", { exact: true }).click();
+  await expect(
+    voice.getByRole("checkbox", { name: "Speak voice replies" }),
+  ).not.toBeChecked();
+});
+
+test("UI conversation search and selection survive settings navigation", async ({
+  page,
+}) => {
+  await connect(page);
+  await send(page, "First saved topic");
+  await page
+    .getByRole("button", { name: "New conversation", exact: false })
+    .filter({ visible: true })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Start a new conversation" }).click();
+  await send(page, "Second saved topic");
+  const menu = page.getByRole("button", {
+    name: "Open navigation",
+    exact: true,
+  });
+  if (await menu.isVisible()) await menu.click();
+  await page
+    .getByRole("textbox", { name: "Search conversations" })
+    .fill("First saved");
+  const list = page.getByRole("navigation", { name: "Recent conversations" });
+  await expect(list.getByRole("button")).toHaveCount(1);
+  await list.getByRole("button", { name: "First saved topic" }).click();
+  await expect(page.getByRole("log")).toContainText("First saved topic");
+  await settingsSection(page, "Privacy");
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Back to chat", exact: true }),
+  ).toBeVisible();
+  await backToChat(page);
+  await expect(page.getByRole("log")).toContainText("First saved topic");
+  await expect(page.getByRole("log")).not.toContainText("Second saved topic");
+});
+
 test("V4 connected apps show owned status and workspace selection/revocation", async ({
   page,
 }) => {
@@ -69,11 +212,13 @@ test("V4 connected apps show owned status and workspace selection/revocation", a
   await page
     .getByRole("button", { name: "DeepSeek connected — provider settings" })
     .click();
+  await settingsSection(page, "Connected Apps");
   const apps = page.getByRole("region", { name: "Connected Apps" });
   await expect(apps).toContainText("separate-github-account");
   await expect(
     apps.getByRole("button", { name: "Connect Gmail", exact: true }),
   ).toBeDisabled();
+  await settingsSection(page, "Workspaces");
   await page.getByRole("button", { name: "Select Fixture project" }).click();
   await expect(
     page.getByRole("region", { name: "Authorized Workspaces" }),
@@ -116,9 +261,9 @@ test("V4 service confirmation displays exact recipient and payload before approv
     action.status = "succeeded";
     await route.fulfill({ json: action });
   });
+  await settingsSection(page, "Appearance");
   await page
-    .getByRole("button", { name: /Devices/ })
-    .first()
+    .getByRole("button", { name: "Review pending actions", exact: true })
     .click();
   await expect(
     page.getByText("review@example.com", { exact: false }),
@@ -174,10 +319,7 @@ test("V4 Git confirmation exposes branch and development output remains inspecta
       ],
     }),
   );
-  await page
-    .getByRole("button", { name: /Devices/ })
-    .first()
-    .click();
+  await toggleDevices(page);
   await expect(page.getByText(/reviewed-branch/)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Allow action" }),
@@ -211,11 +353,12 @@ test("V3 public research shows progress, grounded sources and cancellation", asy
   // Keep cancellation independent of source expansion and mobile scroll animation.
   await page
     .getByRole("button", { name: "New conversation", exact: false })
+    .filter({ visible: true })
     .first()
     .click();
   await page.getByRole("button", { name: "Start a new conversation" }).click();
   await expect(
-    page.getByRole("heading", { name: "What’s on your mind?" }),
+    page.getByRole("heading", { name: "What can I help with?" }),
   ).toBeVisible();
   await send(page, "Research Example");
   await page.getByRole("button", { name: "Cancel research" }).click();
@@ -289,11 +432,12 @@ async function connect(page: Page) {
     .fill("test-only-valid-key");
   await page.getByRole("button", { name: "Connect & get started" }).click();
   await expect(
-    page.getByRole("heading", { name: "What’s on your mind?" }),
+    page.getByRole("heading", { name: "What can I help with?" }),
   ).toBeVisible();
 }
 
 async function send(page: Page, message: string) {
+  await backToChat(page);
   await page.getByLabel("Message THRYV", { exact: true }).fill(message);
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(
@@ -316,7 +460,9 @@ test("setup, conversation, follow-up, settings and disconnect", async ({
   await page
     .getByRole("button", { name: "DeepSeek connected — provider settings" })
     .click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByRole("main", { name: "Settings", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByLabel("DeepSeek API key", { exact: true }),
   ).toHaveValue("");
@@ -428,12 +574,13 @@ test("new conversation retains the saved chat and provider connection", async ({
   await send(page, "An old conversation");
   await page
     .getByRole("button", { name: "New conversation", exact: false })
+    .filter({ visible: true })
     .first()
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Start a new conversation" }).click();
   await expect(
-    page.getByRole("heading", { name: "What’s on your mind?" }),
+    page.getByRole("heading", { name: "What can I help with?" }),
   ).toBeVisible();
   await expect(page.getByLabel("Message THRYV", { exact: true })).toHaveValue(
     "",
@@ -547,11 +694,13 @@ test("replacing the key preserves conversation and closes settings", async ({
     .getByLabel("DeepSeek API key", { exact: true })
     .fill("test-only-valid-key");
   await page
-    .getByRole("dialog")
+    .getByRole("main", { name: "Settings", exact: true })
     .getByRole("checkbox", { name: /Save my key encrypted/ })
     .check();
   await page.getByRole("button", { name: "Connect new key" }).click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByRole("main", { name: "Settings", exact: true }),
+  ).not.toBeVisible();
   await expect(page.getByRole("log")).toContainText(
     "Clear this when replacing the key",
   );
@@ -561,9 +710,7 @@ test("pairing, confirmation, truthful result, audit and revocation", async ({
   page,
 }) => {
   await connect(page);
-  await page
-    .getByRole("button", { name: "Devices & Actions", exact: true })
-    .click();
+  await toggleDevices(page);
   await page.getByRole("button", { name: "Add device", exact: true }).click();
   const token = await page.getByLabel("Single-use pairing token").inputValue();
   const paired = await page.request.post(
@@ -579,9 +726,7 @@ test("pairing, confirmation, truthful result, audit and revocation", async ({
     page.getByRole("region", { name: "Devices", exact: true }),
   ).toContainText("online");
   await page.getByRole("button", { name: "Hide token" }).click();
-  await page
-    .getByRole("button", { name: "Devices & Actions", exact: true })
-    .click();
+  await toggleDevices(page);
   await send(page, "Open Chrome on my laptop.");
   await expect(page.getByRole("log")).toContainText("Nothing has executed yet");
   await expect(page.getByRole("log")).not.toContainText("I already opened it");
@@ -621,9 +766,7 @@ test("pairing, confirmation, truthful result, audit and revocation", async ({
   await expect(page.getByRole("log")).toContainText(
     "The application window opened on your device.",
   );
-  await page
-    .getByRole("button", { name: "Devices & Actions", exact: true })
-    .click();
+  await toggleDevices(page);
   await expect(
     page.getByRole("region", { name: "Recent Actions" }),
   ).toContainText("succeeded");
@@ -662,6 +805,7 @@ test("sign out invalidates the session and signing in restores the chat", async 
   const oldSession = (await context.cookies()).find(
     (c) => c.name === "thryv_session",
   )!;
+  await settingsSection(page, "Account");
   await page
     .getByRole("button", { name: "Sign out", exact: true })
     .filter({ visible: true })
@@ -691,13 +835,14 @@ test("V2 explicit memory persists and can be disabled, deleted and cleared", asy
   );
   await page
     .getByRole("button", { name: "New conversation", exact: false })
+    .filter({ visible: true })
     .first()
     .click();
   await page.getByRole("button", { name: "Start a new conversation" }).click();
   await send(page, "What Python package workflow do I prefer?");
   await expect(page.getByRole("log")).toContainText("You prefer uv");
   await page.reload();
-  await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await settingsSection(page, "Memory");
   const panel = page.getByRole("region", { name: "Personal memory" });
   await expect(panel).toContainText("Python projects to use uv");
   await panel.getByRole("checkbox").uncheck();
@@ -722,7 +867,7 @@ test("V2 explicit memory persists and can be disabled, deleted and cleared", asy
 
 test("V2 memory rejects secrets without echoing them", async ({ page }) => {
   await connect(page);
-  await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await settingsSection(page, "Memory");
   const panel = page.getByRole("region", { name: "Personal memory" });
   await panel
     .getByLabel("Remember something")
@@ -815,6 +960,7 @@ test("V2 captured voice uses SAFE tool and real audio playback can stop", async 
   expect(
     spoken.some((text) => text.includes("Waiting for your Companion")),
   ).toBe(false);
+  await voice.getByText("Voice options", { exact: true }).click();
   await voice.getByRole("checkbox", { name: "Speak voice replies" }).uncheck();
   await page.getByRole("button", { name: "Read reply", exact: true }).click();
   await expect(voice.getByRole("status")).toHaveText("Speaking…");
@@ -826,7 +972,7 @@ test("V2 memory setting reverts when the server rejects the change", async ({
   page,
 }) => {
   await connect(page);
-  await page.getByRole("button", { name: "Memory", exact: true }).click();
+  await settingsSection(page, "Memory");
   const panel = page.getByRole("region", { name: "Personal memory" });
   await expect(panel).toContainText("0/200");
   await page.route("**/api/memories/settings", (route) =>
@@ -931,7 +1077,7 @@ async function syntheticUtterances(page: Page, count: number) {
 
 async function wakeToggle(page: Page) {
   const voice = page.getByRole("region", { name: "Voice", exact: true });
-  await voice.getByText("Settings", { exact: true }).click();
+  await voice.getByText("Voice options", { exact: true }).click();
   return voice.getByRole("checkbox", { name: /Wake word \(Beta\)/ });
 }
 
@@ -992,7 +1138,7 @@ test("V2 wake preference persists, unrelated speech is ignored, and Off releases
   await connect(page);
   const toggle = await wakeToggle(page);
   await expect(toggle).not.toBeChecked();
-  await expect(page.getByText(/Beta may miss invocations/)).toBeVisible();
+  await expect(page.getByText(/Beta can miss or mishear/)).toBeVisible();
   await expect(toggle).not.toBeChecked();
   await toggle.check();
   const status = page
@@ -1037,7 +1183,7 @@ test("V2 wake keyword alone opens command capture and Cancel stops it", async ({
   await page.getByRole("button", { name: "Stop voice", exact: true }).click();
   const voice = page.getByRole("region", { name: "Voice", exact: true });
   await expect(voice.getByRole("status")).toHaveText("Ready");
-  await expect(voice).toContainText("Wake listening is paused");
+  await expect(voice).toContainText("Wake listening paused");
   expect(
     await page.evaluate(() =>
       (

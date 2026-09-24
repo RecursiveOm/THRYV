@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { Mic, Square, Volume2 } from "lucide-react";
 import { accountRequest } from "@/lib/api";
 import { VoiceCapture, voiceRequest, type WakeResult } from "@/lib/voice";
@@ -16,16 +17,47 @@ export function VoiceControls({
   reply,
   busy,
   waitingForDevice,
+  settingsTarget = null,
+  preferenceKey = "default",
+  onStatus,
 }: {
   onTranscript: (text: string) => Promise<void>;
   reply: string;
   busy: boolean;
   waitingForDevice: boolean;
+  settingsTarget?: HTMLElement | null;
+  preferenceKey?: string;
+  onStatus?: (state: string) => void;
 }) {
   const [state, setState] = useState("Ready");
   const phase = useRef("Ready");
   const [error, setError] = useState("");
-  const [automatic, setAutomatic] = useState(true);
+  const options = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (!settingsTarget && (busy || reply) && options.current)
+      options.current.open = false;
+  }, [busy, reply, settingsTarget]);
+  useEffect(() => {
+    if (settingsTarget) return;
+    const dismiss = (event: PointerEvent) => {
+      if (options.current && !options.current.contains(event.target as Node))
+        options.current.open = false;
+    };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, [settingsTarget]);
+  const [automatic, setAutomatic] = useState(() => {
+    try {
+      return (
+        localStorage.getItem("thryv-voice-replies-" + preferenceKey) !== "off"
+      );
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    onStatus?.(state);
+  }, [state, onStatus]);
   const [wakeEnabled, setWakeEnabled] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(true);
   const [paused, setPaused] = useState(false);
@@ -313,11 +345,15 @@ export function VoiceControls({
   }
   const recording = state === "Listening…";
   const wakeListening = state === "Wake listening for THRYV…";
-  return (
-    <section className="voice-controls" aria-label="Voice">
-      <div className="voice-buttons">
+  const controls = (
+    <section
+      className={`voice-controls ${settingsTarget ? "voice-page" : ""}`}
+      aria-label="Voice"
+    >
+      <div className="voice-primary">
         <button
           type="button"
+          className="talk-button"
           onClick={() =>
             recording ? void finish(generation.current, false) : void start()
           }
@@ -329,51 +365,74 @@ export function VoiceControls({
           }
           aria-label={recording ? "Finish voice message" : "Talk to THRYV"}
         >
-          <Mic size={16} />
+          <Mic size={18} />
           {recording ? "Finish & send" : "Talk"}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            armed.current = false;
-            void speak(reply);
-          }}
-          disabled={!reply || busy || recording}
+        {(state !== "Ready" || (wakeEnabled && !paused)) && (
+          <button
+            type="button"
+            aria-label="Stop voice"
+            onClick={() => {
+              armed.current = false;
+              setPaused(true);
+              stop(true);
+            }}
+          >
+            <Square size={14} />
+            {recording ? "Cancel" : "Stop voice"}
+          </button>
+        )}
+        <span
+          role="status"
+          className={state === "Ready" && !waitingForDevice ? "sr-only" : ""}
         >
-          <Volume2 size={16} /> Read reply
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            armed.current = false;
-            setPaused(true);
-            stop(true);
-          }}
-          disabled={state === "Ready" && !wakeEnabled}
-        >
-          <Square size={14} /> Stop voice
-        </button>
-        <span role="status">
           {waitingForDevice && state === "Ready"
-            ? "Waiting for device…"
+            ? "Waiting for result…"
             : state}
         </span>
-        <label>
-          <input
-            type="checkbox"
-            checked={automatic}
-            onChange={(e) => {
-              setAutomatic(e.target.checked);
-              if (!e.target.checked) stop();
-            }}
-          />{" "}
-          Speak voice replies
-        </label>
       </div>
-      <details className="voice-settings">
-        <summary>Settings</summary>
-        <fieldset>
-          <legend>Voice</legend>
+      <details
+        ref={options}
+        className="voice-options"
+        open={settingsTarget ? true : undefined}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && !settingsTarget) {
+            event.currentTarget.open = false;
+            event.currentTarget.querySelector("summary")?.focus();
+          }
+        }}
+      >
+        <summary>Voice options</summary>
+        <div className="voice-options-content">
+          <button
+            type="button"
+            onClick={() => {
+              armed.current = false;
+              void speak(reply);
+            }}
+            disabled={!reply || busy || recording}
+          >
+            <Volume2 size={16} /> Read reply
+          </button>
+          <label>
+            <input
+              type="checkbox"
+              checked={automatic}
+              onChange={(e) => {
+                setAutomatic(e.target.checked);
+                try {
+                  localStorage.setItem(
+                    "thryv-voice-replies-" + preferenceKey,
+                    e.target.checked ? "on" : "off",
+                  );
+                } catch {
+                  /* optional local preference */
+                }
+                if (!e.target.checked) stop();
+              }}
+            />{" "}
+            Speak voice replies
+          </label>
           <label>
             <input
               type="checkbox"
@@ -384,14 +443,12 @@ export function VoiceControls({
             Wake word (Beta): {wakeEnabled ? "On" : "Off"}
           </label>
           <p>
-            Beta may miss invocations or mis-detect similar-sounding words. Talk
-            is the recommended reliable fallback. THRYV is the fixed keyword.
+            Say “Thryv” to start. Beta can miss or mishear invocations; Talk is
+            always available.
           </p>
           <p>
-            Say “Thryv” or “Hey Thryv, …”. This saved account setting enables
-            microphone listening in one visible tab. Speech recognition runs on
-            your THRYV server; unrecognized speech is discarded and never sent
-            to DeepSeek.
+            Wake listening uses the microphone in one visible tab. Audio is
+            processed on your THRYV server, not streamed to DeepSeek.
           </p>
           {wakeEnabled && paused && (
             <button
@@ -404,14 +461,13 @@ export function VoiceControls({
               Resume wake listening
             </button>
           )}
-        </fieldset>
+          <small>
+            Pause for about 1.3 seconds to send, or use Finish. Up to 30 seconds
+            per message; replies read up to 600 characters.
+          </small>
+        </div>
       </details>
-      <small>
-        Talk, then pause for about 1.3 seconds to send. Finish &amp; send and
-        Stop voice are fallbacks. Up to 30 seconds; speech is processed on this
-        THRYV server. Replies read up to 600 characters.{" "}
-        {wakeEnabled && paused ? "Wake listening is paused." : ""}
-      </small>
+      {wakeEnabled && paused && <small>Wake listening paused.</small>}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -419,4 +475,5 @@ export function VoiceControls({
       )}
     </section>
   );
+  return settingsTarget ? createPortal(controls, settingsTarget) : controls;
 }

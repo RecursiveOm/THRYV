@@ -58,11 +58,14 @@ export function ProjectPanel({
   return (
     <section aria-label="Authorized Workspaces">
       <h3>Authorized Workspaces</h3>
-      <p>
-        Authorize a project on your paired computer with{" "}
-        <code>thryv-companion workspace-add /path/to/project</code>, then keep
-        Companion running.
-      </p>
+      <details>
+        <summary>Add a workspace</summary>
+        <p>
+          Authorize a project on your paired computer with{" "}
+          <code>thryv-companion workspace-add /path/to/project</code>, then keep
+          Companion running.
+        </p>
+      </details>
       <button className="text-button" onClick={refresh}>
         Refresh workspaces
       </button>

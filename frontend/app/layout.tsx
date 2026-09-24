@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./workspace.css";
+import { ThemeRoot } from "@/components/appearance";
 
 export const metadata: Metadata = {
   title: "THRYV — Your Personal AI",
@@ -12,7 +14,10 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ThemeRoot />
+        {children}
+      </body>
     </html>
   );
 }

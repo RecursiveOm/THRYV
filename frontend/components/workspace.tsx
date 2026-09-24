@@ -2,19 +2,17 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  ArrowDown,
   ArrowUp,
   BookOpen,
   ChevronRight,
   Compass,
   Feather,
-  Leaf,
-  LockKeyhole,
   LogOut,
   MessageSquare,
   Plus,
   Settings2,
   Square,
+  Menu,
   X,
 } from "lucide-react";
 import { Brand, Mark } from "./brand";
@@ -38,32 +36,34 @@ import { MemoryPanel } from "./memory-panel";
 import { VoiceControls } from "./voice-controls";
 import { ProjectPanel } from "./project-panel";
 import { ConnectedApps } from "./connected-apps";
+import { Appearance } from "./appearance";
+import { SettingsPage, sections, type SettingsSection } from "./settings-page";
 
 const starters = [
   {
     icon: Feather,
-    title: "Find the right words",
+    title: "Write something",
     description: "Turn a rough thought into a first draft",
     prompt:
       "Help me turn a rough thought into a clear first draft. Ask me what I’m writing and who it’s for.",
   },
   {
     icon: Compass,
-    title: "Make a little progress",
+    title: "Plan a project",
     description: "Break something big into smaller steps",
     prompt:
       "Help me break a goal into small, practical next steps. First, ask me what I want to work on.",
   },
   {
     icon: BookOpen,
-    title: "Follow your curiosity",
+    title: "Learn something",
     description: "Understand something in a new way",
     prompt:
       "I’d like to understand something new. Ask me what I’m curious about, then help me explore it.",
   },
   {
     icon: MessageSquare,
-    title: "Think it through",
+    title: "Explore an idea",
     description: "Give an idea some room to grow",
     prompt:
       "Be a sounding board for an idea. Ask me what’s on my mind and help me think it through.",
@@ -129,37 +129,127 @@ function SignedWorkspace({
   onSignOut: () => void;
 }) {
   const [key, setKey] = useState(account.provider_connected);
-  const [conversation, setConversation] = useState("");
+  const [conversation, setConversation] = useState(() =>
+    window.location.hash.startsWith("#settings/")
+      ? new URLSearchParams(window.location.hash.split("?")[1]).get("chat") ||
+        ""
+      : "",
+  );
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [actions, setActions] = useState<Action[]>([]);
   const [deviceId, setDeviceId] = useState("");
-  const [panel, setPanel] = useState(false);
-  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const sidebar = useRef<HTMLElement>(null);
+  const [voiceHost, setVoiceHost] = useState<HTMLDivElement | null>(null);
+  const [section, setSection] = useState<SettingsSection>(() => {
+    return (
+      sections.find(
+        (s) =>
+          "#settings/" + encodeURIComponent(s) ===
+          window.location.hash.split("?")[0],
+      ) || "General"
+    );
+  });
   const [voiceReset, setVoiceReset] = useState(0);
-  const conversationRef = useRef("");
+  const [voiceStatus, setVoiceStatus] = useState("Ready");
+  const conversationRef = useRef(conversation);
   const selection = useRef(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [settings, setSettings] = useState(false);
+  const [settings, setSettings] = useState(() =>
+    window.location.hash.startsWith("#settings/"),
+  );
   const [clearConfirmation, setClearConfirmation] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
   const clearDialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => () => controller.current?.abort(), []);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pending]);
+  function openSettings(next: SettingsSection = "General") {
+    setError("");
+    setSection(next);
+    setSettings(true);
+    setNavOpen(false);
+    window.history.pushState(
+      null,
+      "",
+      "#settings/" +
+        encodeURIComponent(next) +
+        (conversationRef.current
+          ? "?chat=" + encodeURIComponent(conversationRef.current)
+          : ""),
+    );
+  }
+  function closeSettings() {
+    setSettings(false);
+    window.history.pushState(
+      { thryvConversation: conversationRef.current },
+      "",
+      "#" + (conversationRef.current || "new"),
+    );
+  }
   useEffect(() => {
-    if (settings) dialog.current?.showModal();
-    else dialog.current?.close();
-  }, [settings]);
+    const navigate = () => {
+      const hash = window.location.hash;
+      const selected = sections.find(
+        (s) => "#settings/" + encodeURIComponent(s) === hash.split("?")[0],
+      );
+      setSettings(Boolean(selected));
+      if (selected) setSection(selected);
+    };
+    window.addEventListener("hashchange", navigate);
+    window.addEventListener("popstate", navigate);
+    return () => {
+      window.removeEventListener("hashchange", navigate);
+      window.removeEventListener("popstate", navigate);
+    };
+  }, []);
+  useEffect(() => {
+    if (!navOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const nodes = () =>
+      Array.from(
+        sidebar.current?.querySelectorAll<HTMLElement>(
+          "button:not(:disabled), input, a[href]",
+        ) || [],
+      ).filter((n) => n.getClientRects().length);
+    nodes()[0]?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavOpen(false);
+      if (event.key === "Tab") {
+        const items = nodes(),
+          first = items[0],
+          last = items.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    const size = matchMedia("(max-width: 640px)");
+    const resize = () => {
+      if (!size.matches) setNavOpen(false);
+    };
+    size.addEventListener("change", resize);
+    return () => {
+      document.removeEventListener("keydown", keydown);
+      size.removeEventListener("change", resize);
+      previous?.focus();
+    };
+  }, [navOpen]);
   useEffect(() => {
     if (clearConfirmation) clearDialog.current?.showModal();
     else clearDialog.current?.close();
@@ -183,6 +273,8 @@ function SignedWorkspace({
     );
   }
   async function openConversation(id: string) {
+    setNavOpen(false);
+    closeSettings();
     const version = ++selection.current;
     reset();
     conversationRef.current = id;
@@ -204,7 +296,11 @@ function SignedWorkspace({
       .then(async (chats) => {
         if (!active) return;
         setConversations(chats);
-        const hash = window.location.hash.slice(1);
+        const hash = window.location.hash.startsWith("#settings/")
+          ? new URLSearchParams(window.location.hash.split("?")[1]).get(
+              "chat",
+            ) || "new"
+          : window.location.hash.slice(1);
         const selected =
           hash === "new"
             ? undefined
@@ -291,7 +387,7 @@ function SignedWorkspace({
 
   function connect() {
     setKey(true);
-    setSettings(false);
+    closeSettings();
   }
   async function disconnect() {
     try {
@@ -313,6 +409,8 @@ function SignedWorkspace({
     }
   }
   function newChat() {
+    setNavOpen(false);
+    setSettings(false);
     ++selection.current;
     reset();
     conversationRef.current = "";
@@ -449,7 +547,27 @@ function SignedWorkspace({
 
   return (
     <div className="workspace">
-      <aside className="sidebar">
+      {navOpen && (
+        <button
+          className="nav-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+      <aside
+        ref={sidebar}
+        className={`sidebar ${navOpen ? "is-open" : ""}`}
+        aria-label="Navigation"
+        role={navOpen ? "dialog" : undefined}
+        aria-modal={navOpen || undefined}
+      >
+        <button
+          className="mobile-close icon-button"
+          aria-label="Close navigation"
+          onClick={() => setNavOpen(false)}
+        >
+          <X size={20} />
+        </button>
         <Brand />
         <button
           className="new-chat"
@@ -462,59 +580,80 @@ function SignedWorkspace({
           <Plus size={18} /> New conversation <span>↗</span>
         </button>
         <div className="sidebar-section">
-          <span className="eyebrow">YOUR SPACE</span>
-          <div className="active-conversation">
-            <MessageSquare size={16} />
-            <span>{messages[0]?.content || "A fresh perspective"}</span>
-            <span className="status-dot" />
-          </div>
+          <label className="sr-only" htmlFor="conversation-search">
+            Search conversations
+          </label>
+          <input
+            id="conversation-search"
+            className="conversation-search"
+            placeholder="Search conversations"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <span className="nav-label">Conversations</span>
           <nav className="chat-list" aria-label="Recent conversations">
-            {conversations.map((c) => (
-              <button
-                key={c.id}
-                aria-current={c.id === conversation ? "page" : undefined}
-                onClick={() => void openConversation(c.id)}
-              >
-                {c.title}
-              </button>
-            ))}
+            {conversations
+              .filter((c) =>
+                c.title.toLowerCase().includes(search.toLowerCase()),
+              )
+              .map((c) => (
+                <button
+                  key={c.id}
+                  aria-current={c.id === conversation ? "page" : undefined}
+                  onClick={() => void openConversation(c.id)}
+                >
+                  {c.title}
+                </button>
+              ))}
           </nav>
         </div>
-        <div className="sidebar-note">
-          <Leaf size={22} />
-          <p>
-            Good things start
-            <br />
-            with a little curiosity.
-          </p>
-        </div>
-        <div className="sidebar-bottom">
-          <button onClick={() => setSettings(true)}>
-            <Settings2 size={17} /> Provider settings
+        <nav className="sidebar-bottom" aria-label="Utilities">
+          <button onClick={() => openSettings("Memory")}>
+            <BookOpen size={17} /> Memory
           </button>
-          {conversation && (
-            <button onClick={deleteChat}>Delete this conversation</button>
-          )}
-          <button onClick={() => setPanel(!panel)}>
-            Devices & Recent Actions
+          <button onClick={() => openSettings("Devices")}>
+            <Compass size={17} /> Devices & Actions
+            {actions.some((a) => a.status === "pending_confirmation") && (
+              <span className="approval-count">Approval needed</span>
+            )}
           </button>
-          <button onClick={signOut}>
-            <LogOut size={17} /> Sign out
+          <button onClick={() => openSettings("General")}>
+            <Settings2 size={17} /> Settings
+          </button>
+          <button
+            className="account-link"
+            onClick={() => openSettings("Account")}
+          >
+            {account.email}
           </button>
           <span>Created by Omkar Zunje</span>
-        </div>
+        </nav>
       </aside>
-      <main className="chat-main">
+      <main className="chat-main" hidden={settings} inert={navOpen}>
         <header className="chat-header">
-          <div>
-            <span className="mobile-wordmark">THRYV</span>
-            <span className="desktop-heading">Your Personal AI</span>
-            <span className="header-divider" />
-            <span className="session-label">Your space, saved securely</span>
+          <div className="chat-heading">
+            <button
+              className="mobile-menu icon-button"
+              aria-label="Open navigation"
+              aria-expanded={navOpen}
+              onClick={() => setNavOpen(true)}
+            >
+              <Menu size={20} />
+            </button>
+            <span className="conversation-title">
+              {conversations.find((c) => c.id === conversation)?.title ||
+                "New conversation"}
+            </span>
+            {conversation && (
+              <details className="conversation-menu">
+                <summary aria-label="Conversation options">•••</summary>
+                <button onClick={deleteChat}>Delete chat</button>
+              </details>
+            )}
           </div>
           <button
             className="connection-pill"
-            onClick={() => setSettings(true)}
+            onClick={() => openSettings("Provider")}
             aria-label="DeepSeek connected — provider settings"
           >
             <span className="status-dot" /> DeepSeek <Settings2 size={13} />
@@ -531,110 +670,57 @@ function SignedWorkspace({
             <Plus size={19} />
           </button>
         </header>
-        <div className="workspace-toolbar">
-          <button
-            onClick={() => setMemoryOpen(!memoryOpen)}
-            aria-expanded={memoryOpen}
-          >
-            Memory
-          </button>
-          <label htmlFor="device-picker">Device</label>
-          <select
-            id="device-picker"
-            value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-          >
-            <option value="">Select a device</option>
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} · {d.status}
-              </option>
-            ))}
-          </select>
-          <button onClick={() => setPanel(!panel)} aria-expanded={panel}>
-            Devices & Actions
-            {actions.some((a) => a.status === "pending_confirmation")
-              ? " · Approval needed"
-              : ""}
-          </button>
-          <button className="mobile-account" onClick={signOut}>
-            Sign out
-          </button>
-          {conversation && (
-            <button className="mobile-account" onClick={deleteChat}>
-              Delete chat
-            </button>
-          )}
-          <select
-            className="mobile-account"
-            aria-label="Recent conversations"
-            value={conversation}
-            onChange={(e) =>
-              e.target.value ? void openConversation(e.target.value) : newChat()
-            }
-          >
-            <option value="">New conversation</option>
-            {conversations.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </select>
-        </div>
+        {devices.some((d) => d.status !== "revoked") && (
+          <div className="workspace-toolbar">
+            <label htmlFor="device-picker">Device</label>
+            <select
+              id="device-picker"
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+            >
+              <option value="">No device selected</option>
+              {devices
+                .filter((d) => d.status !== "revoked")
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} · {d.status}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
         <div
           className={`chat-scroll ${messages.length || pending ? "has-messages" : ""}`}
         >
-          {memoryOpen && (
-            <div className="tools-panel">
-              <MemoryPanel />
-            </div>
-          )}
-          {panel && (
-            <div className="tools-panel">
-              <Devices devices={devices} refresh={refresh} />
+          {actions.some(
+            (a) =>
+              (a.status === "pending_confirmation" ||
+                a.device_id === null ||
+                a.tool === "v4_workflow") &&
+              a.conversation_id === conversation,
+          ) && (
+            <div className="inline-actions">
               <RecentActions
-                actions={actions}
+                actions={actions.filter(
+                  (a) =>
+                    (a.status === "pending_confirmation" ||
+                      a.device_id === null ||
+                      a.tool === "v4_workflow") &&
+                    a.conversation_id === conversation,
+                )}
                 devices={devices}
                 refresh={refresh}
               />
             </div>
           )}
-          {!panel &&
-            actions.some(
-              (a) =>
-                (a.status === "pending_confirmation" ||
-                  a.device_id === null ||
-                  a.tool === "v4_workflow") &&
-                a.conversation_id === conversation,
-            ) && (
-              <div className="inline-actions">
-                <RecentActions
-                  actions={actions.filter(
-                    (a) =>
-                      (a.status === "pending_confirmation" ||
-                        a.device_id === null ||
-                        a.tool === "v4_workflow") &&
-                      a.conversation_id === conversation,
-                  )}
-                  devices={devices}
-                  refresh={refresh}
-                />
-              </div>
-            )}
           {!messages.length && !pending ? (
             <section className="empty-state">
               <div className="greeting-mark">
                 <Mark />
               </div>
-              <span className="eyebrow">A CLEARER MIND. A FRESH START.</span>
-              <h1>What’s on your mind?</h1>
-              <p>
-                Big ideas, small questions, and everything in between.
-                <br />
-                Let’s make a little progress together.
-              </p>
+              <h1>What can I help with?</h1>
               <div className="starter-grid">
-                {starters.map(({ icon: Icon, title, description, prompt }) => (
+                {starters.map(({ icon: Icon, title, prompt }) => (
                   <button
                     className="starter"
                     key={title}
@@ -648,13 +734,8 @@ function SignedWorkspace({
                       <ArrowUp size={15} className="diagonal-arrow" />
                     </span>
                     <strong>{title}</strong>
-                    <span>{description}</span>
                   </button>
                 ))}
-              </div>
-              <div className="empty-footnote">
-                <LockKeyhole size={13} /> Conversations are saved to your THRYV
-                account.
               </div>
             </section>
           ) : (
@@ -733,7 +814,7 @@ function SignedWorkspace({
                         <i />
                         <i />
                       </span>{" "}
-                      Making room for a thought…
+                      Working…
                     </div>
                   </article>
                 </>
@@ -744,6 +825,9 @@ function SignedWorkspace({
         </div>
         <div className="composer-area">
           <VoiceControls
+            settingsTarget={settings && section === "Voice" ? voiceHost : null}
+            preferenceKey={account.id}
+            onStatus={setVoiceStatus}
             onTranscript={(text) => sendText(text, true)}
             reply={
               [...messages].reverse().find((m) => m.role === "assistant")
@@ -760,7 +844,7 @@ function SignedWorkspace({
           {error && (
             <div className="composer-feedback error" role="alert">
               <p>{error}</p>
-              <button onClick={() => setSettings(true)}>
+              <button onClick={() => openSettings("Provider")}>
                 Provider settings <ChevronRight size={14} />
               </button>
             </div>
@@ -779,7 +863,7 @@ function SignedWorkspace({
               id="message"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Ask, imagine, or think out loud…"
+              placeholder="Message THRYV…"
               maxLength={8000}
               rows={2}
               disabled={Boolean(pending)}
@@ -832,42 +916,114 @@ function SignedWorkspace({
             </div>
           </form>
           <div className="composer-caption">
-            <span>
-              THRYV can make mistakes. Give important details a second look.
-            </span>
-            <span title="Up to 10 recent turns fit within the context limit.">
-              <ArrowDown size={11} /> Recent context only
-            </span>
+            THRYV can make mistakes. Review important results.
           </div>
         </div>
       </main>
-      <dialog
-        ref={dialog}
-        onCancel={() => setSettings(false)}
-        onClose={() => setSettings(false)}
-        className="settings-dialog"
-        aria-labelledby="settings-title"
-      >
+      {settings &&
+        section !== "Devices" &&
+        actions.some((a) => a.status === "pending_confirmation") && (
+          <button
+            className="approval-notice"
+            aria-label="Review pending actions"
+            onClick={() => openSettings("Devices")}
+          >
+            Approval needed · Review action
+          </button>
+        )}
+      {settings && section !== "Voice" && voiceStatus !== "Ready" && (
         <button
-          className="dialog-close icon-button"
-          onClick={() => setSettings(false)}
-          aria-label="Close provider settings"
+          className="global-voice-status"
+          onClick={() => openSettings("Voice")}
         >
-          <X size={20} />
+          {voiceStatus} · Voice controls
         </button>
-        <span className="eyebrow">YOUR CONNECTION</span>
-        <h2 id="settings-title">Provider settings</h2>
-        <p className="dialog-description">
-          Your key is encrypted on this server. Replacing or removing it keeps
-          your conversations.
-        </p>
-        {settings && <KeyForm onConnect={connect} isSettings />}
-        {settings && <ProjectPanel onSelect={setDeviceId} />}
-        {settings && <ConnectedApps />}
-        <button className="disconnect-button" onClick={disconnect}>
-          <LogOut size={16} /> Remove saved key
-        </button>
-      </dialog>
+      )}
+      {settings && (
+        <SettingsPage
+          section={section}
+          onSection={openSettings}
+          onClose={closeSettings}
+        >
+          {error && (
+            <p role="alert" className="error">
+              {error}
+            </p>
+          )}
+          {section === "General" && (
+            <div className="settings-summary">
+              <p>Your assistant, set up your way.</p>
+              <button onClick={() => openSettings("Appearance")}>
+                Appearance <ChevronRight size={16} />
+              </button>
+              <button onClick={() => openSettings("Voice")}>
+                Voice preferences <ChevronRight size={16} />
+              </button>
+              <button onClick={() => openSettings("Provider")}>
+                DeepSeek · {key ? "Connected" : "Not connected"}{" "}
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+          {section === "Appearance" && <Appearance />}
+          {section === "Voice" && <div ref={setVoiceHost} />}
+          {section === "Provider" && (
+            <>
+              <p>
+                Your key is encrypted on this server. Changing it keeps your
+                conversations.
+              </p>
+              <KeyForm onConnect={connect} isSettings />
+              <button className="disconnect-button" onClick={disconnect}>
+                Remove saved key
+              </button>
+            </>
+          )}
+          {section === "Devices" && (
+            <>
+              <Devices devices={devices} refresh={refresh} />
+              <RecentActions
+                actions={actions}
+                devices={devices}
+                refresh={refresh}
+              />
+            </>
+          )}
+          {section === "Workspaces" && <ProjectPanel onSelect={setDeviceId} />}
+          {section === "Connected Apps" && <ConnectedApps />}
+          {section === "Memory" && <MemoryPanel />}
+          {section === "Privacy" && (
+            <div className="settings-summary">
+              <h3>You stay in control</h3>
+              <p>
+                Tool permissions and confirmations apply to both text and voice.
+                Actions remain in your history.
+              </p>
+              <h3>Voice</h3>
+              <p>
+                Audio is processed on your THRYV server. Background wake
+                listening is optional and off by default. Microphone audio is
+                never continuously streamed to DeepSeek.
+              </p>
+              <h3>Saved data</h3>
+              <p>
+                Conversations and memory belong to your account. Provider and
+                connected-app credentials are encrypted on the server. Only
+                explicitly saved memories carry across chats.
+              </p>
+            </div>
+          )}
+          {section === "Account" && (
+            <div className="settings-summary">
+              <p>{account.email}</p>
+              <p>Your THRYV account is separate from connected services.</p>
+              <button onClick={signOut}>
+                <LogOut size={17} /> Sign out
+              </button>
+            </div>
+          )}
+        </SettingsPage>
+      )}
       <dialog
         ref={clearDialog}
         onCancel={() => setClearConfirmation(false)}
